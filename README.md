@@ -9,8 +9,11 @@ reader do to be positioned for it.
 to `/output/board.json`, writes the dashboard's data to `/output/data.js`, copies `dashboard/` and
 `screenshots/` into `/output`, and writes `/output/dossier.json` with the vendored
 `vendor/makefun-board.ts`, exactly as the bounty requires. The dashboard is a static page — no
-framework, no network — with a sortable, filterable board, a detail view per protocol, a live-token
-view, and a model view that states the method.
+framework, no network — laid out as a desktop workspace: a filter rail (search, category, chain,
+watchlist-only) beside a dense six-column board (rank, protocol, TVL, 7-day change, implied value
+and implied multiple), a two-column detail view per protocol with the model's workings as factor
+bars beside the farm-plan timeline, a live-token view with a summary strip, and a model view that
+states the method beside its comparable set.
 
 ## The model (sonar-1)
 
