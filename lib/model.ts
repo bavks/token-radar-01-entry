@@ -158,6 +158,25 @@ export const SCORE: ScoreConstants = {
   window_risk_days: 1095,
 };
 
+/**
+ * Display-currency rates, baked in at build time so the dashboard stays fully offline: units of
+ * each currency per 1 USD, from exchangerate-api.com's public table of 2026-11-15. Display only —
+ * every figure the model computes, ranks and sorts by stays in USD; the dashboard converts at
+ * render time and says so beside the selector.
+ */
+export interface FxData {
+  /** The rates' own date, as the source published it. */
+  as_of: string;
+  source: string;
+  rates: Record<string, number>;
+}
+
+export const FX: FxData = {
+  as_of: '2026-11-15',
+  source: 'exchangerate-api.com',
+  rates: { USD: 1, EUR: 0.905984, GBP: 0.756391, JPY: 159.779, CNY: 6.68968, IDR: 18229.4, KRW: 1336.06 },
+};
+
 /** How many rows beyond the watchlist's 40 the radar adds, largest TVL first. */
 export const EARLY_ROWS = 180;
 
@@ -286,6 +305,8 @@ export interface RadarData {
   /** The scoring layer's constants, and the snapshot's own launch record behind the propensity part:
    * launched_count of snapshot_count protocols already record a token, a share of launch_share. */
   score: ScoreConstants;
+  /** Display-currency rates baked in at build time; conversion happens in the dashboard, display only. */
+  fx: FxData;
   launched_count: number;
   snapshot_count: number;
   launch_share: number;
@@ -879,6 +900,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     model,
     model_version: MODEL_VERSION,
     score: SCORE,
+    fx: FX,
     launched_count: launch.launched,
     snapshot_count: launch.total,
     launch_share: round4(launch.share),

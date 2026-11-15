@@ -103,6 +103,19 @@ age sets the hold (30–75 days, long enough to span several weekly snapshots), 
 change sets the sizing note — a protocol whose TVL fell hard that week gets a halved first position,
 not the standard one. Every step states what it costs and how long it takes.
 
+## The dashboard's display layer
+
+The masthead carries the board's own vital signs — protocols ranked, the ranked set's total TVL,
+how many protocols sit in a likely-open snapshot window, and the median airdrop estimate — over a
+radar motif drawn in the gradient. Below them sits a display-currency selector: USD, EUR, GBP,
+JPY, CNY, IDR and KRW. The rates are constants baked into `data.js` at build time (`FX` in
+`lib/model.ts`, from exchangerate-api.com's public table of 2026-11-15), so the page stays fully
+offline, and conversion is display only: every figure is converted at render time by the one
+formatter, zero-decimal currencies show no cents, and ranking, sorting and all model maths stay
+in USD — the selector's own note on the page says exactly that. Percentages, multiples and the
+airdrop score never convert. The farm plans are part of `board.json` and keep the dollar amounts
+the model wrote into them.
+
 ## Running it
 
 ```

@@ -11,15 +11,39 @@
   var app = document.getElementById('app');
   var maxTvl = 0;
   DATA.rows.forEach(function (r) { if (r.tvl_usd > maxTvl) maxTvl = r.tvl_usd; });
-  var state = { view: 'board', q: '', category: 'all', chain: 'all', watch: false, sort: 'rank', dir: 1, selected: null };
+  // the masthead's stat cluster: aggregates of the board itself, computed once
+  var openCount = 0;
+  var airSorted = DATA.rows.map(function (r) { return r.air; }).sort(function (a, b) { return a - b; });
+  DATA.rows.forEach(function (r) { if (r.win === 0) openCount++; });
+  var medAir = airSorted.length ? airSorted[Math.floor(airSorted.length / 2)] : 0;
+  // display currency: the rates are baked into data.js (DATA.fx) so the page stays offline, and
+  // conversion is display only — ranking, sorting and every model figure stay in USD, as the
+  // note beside the selector in the masthead says. Percentages, multiples and scores never pass
+  // through this formatter, so they never convert.
+  var CCYS = ['USD', 'EUR', 'GBP', 'JPY', 'CNY', 'IDR', 'KRW'];
+  var NO_CENTS = { JPY: 1, IDR: 1, KRW: 1 };
+  var FXD = DATA.fx || { as_of: '', source: '', rates: {} };
+  function loadCcy() {
+    try { var c = window.localStorage.getItem('soonair-ccy'); return CCYS.indexOf(c) >= 0 ? c : 'USD'; }
+    catch (e) { return 'USD'; }
+  }
+  function saveCcy() { try { window.localStorage.setItem('soonair-ccy', state.ccy); } catch (e) { /* a blocked store just means the choice lasts the visit */ } }
+  var state = { view: 'board', q: '', category: 'all', chain: 'all', watch: false, sort: 'rank', dir: 1, selected: null, ccy: loadCcy() };
 
-  var usd0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-  function fmtUsd(n) {
+  var fmtCache = {};
+  function fmtMoney(n) {
     if (n === null || n === undefined || !isFinite(n)) return 'n/a';
-    if (Math.abs(n) >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
-    if (Math.abs(n) >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
-    if (Math.abs(n) >= 1e3) return '$' + Math.round(n / 1e3) + 'K';
-    return usd0.format(n);
+    var c = state.ccy;
+    var f = fmtCache[c];
+    if (!f) {
+      f = fmtCache[c] = {
+        rate: FXD.rates[c] || 1,
+        full: new Intl.NumberFormat('en-US', { style: 'currency', currency: c, maximumFractionDigits: 0 }),
+        big: new Intl.NumberFormat('en-US', { style: 'currency', currency: c, notation: 'compact', maximumFractionDigits: NO_CENTS[c] ? 0 : 2 })
+      };
+    }
+    var v = n * f.rate;
+    return Math.abs(v) >= 10000 ? f.big.format(v) : f.full.format(v);
   }
   function fmtPct(n) {
     if (n === null || n === undefined || !isFinite(n)) return 'n/a';
@@ -115,16 +139,48 @@
     writeHash(); render();
   }
 
-  // ---- chrome: a coloured masthead band — wordmark, provenance chip and the three view tabs
+  // ---- chrome: a coloured masthead band — wordmark, a radar motif, the board's own vital
+  // signs, the currency control and the three view tabs
+  function hstat(k, v) {
+    return el('div', { class: 'hstat' },
+      el('div', { class: 'hk', text: k }),
+      el('div', { class: 'hv', text: v }));
+  }
   function topbar() {
+    // decoration only: radar rings, a dotted route arc and a paper plane, drawn in the gradient
+    var motif = el('div', { class: 'motif', 'aria-hidden': 'true' });
+    motif.innerHTML = '<svg width="360" height="118" viewBox="0 0 360 118" fill="none"><circle cx="282" cy="30" r="15" stroke="rgba(125,211,252,.5)"/><circle cx="282" cy="30" r="33" stroke="rgba(125,211,252,.30)"/><circle cx="282" cy="30" r="53" stroke="rgba(94,234,212,.18)"/><circle cx="282" cy="30" r="3.5" fill="#5eead4"/><path d="M6 102 Q170 6 316 78" stroke="rgba(219,234,254,.45)" stroke-width="1.6" stroke-dasharray="1 7" stroke-linecap="round"/><path d="M40 84 L66 64 L54 94 L47 81 Z" fill="rgba(125,211,252,.8)"/><path d="M47 81 L66 64" stroke="rgba(6,40,59,.55)" stroke-width="1.2"/></svg>';
     return el('div', { class: 'topbar' },
+      motif,
       el('div', { class: 'brand' },
         el('h1', null, 'SOON', el('em', null, 'AIR')),
         el('div', { class: 'tag', text: 'Soon-airdrop radar — protocols that record no token yet, scored for the launch that may be coming: what it could be worth, how likely a drop looks, and what to do before any user snapshot is taken.' })
       ),
-      el('div', { class: 'topmeta' },
-        'Snapshot ', el('b', { text: DATA.as_of }), ' · ' + DATA.board_size + ' protocols ranked')
+      el('div', { class: 'hstats' },
+        hstat('Protocols ranked', String(DATA.board_size)),
+        hstat('TVL on the board', fmtMoney(DATA.pulse.total_tvl_usd)),
+        hstat('Windows likely open', String(openCount)),
+        hstat('Median airdrop est.', medAir + '%'))
     );
+  }
+
+  // the masthead's control row: the display-currency selector with its honesty note, and the
+  // provenance chip that used to sit beside the wordmark
+  function mastctl() {
+    var sel = el('select', { 'aria-label': 'Display currency' });
+    CCYS.forEach(function (c) {
+      var o = el('option', { value: c, text: c });
+      if (c === state.ccy) o.setAttribute('selected', 'selected');
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change', function () { state.ccy = sel.value; saveCcy(); render(); });
+    return el('div', { class: 'mastctl' },
+      el('div', { class: 'ccy' },
+        el('label', { text: 'Display currency' }),
+        sel,
+        el('span', { class: 'ccynote', text: 'Display only — rates as of ' + FXD.as_of + ' (' + FXD.source + '); ranking is computed in USD' })),
+      el('div', { class: 'topmeta' },
+        'Snapshot ', el('b', { text: DATA.as_of }), ' · ' + DATA.board_size + ' protocols ranked'));
   }
 
   function tabs() {
@@ -176,7 +232,7 @@
       el('div', { class: 'toggle' },
         el('span', null,
           el('span', { class: 'tlabel', text: 'Watchlist only' }),
-          el('span', { class: 'tsub', text: 'Above the $' + Math.round(DATA.floor_usd / 1e6) + 'M floor' })),
+          el('span', { class: 'tsub', text: 'Above the ' + fmtMoney(DATA.floor_usd) + ' floor' })),
         el('span', { class: 'switch' }, toggle, el('span', { class: 'track' }))),
       el('div', { class: 'rail-count' },
         el('div', { class: 'n', text: String(shown) }),
@@ -196,7 +252,7 @@
     return el('div', { class: 'pulse' },
       el('div', { class: 'pcell' },
         el('div', { class: 'k', text: 'TVL on the board' }),
-        el('div', { class: 'v', text: fmtUsd(p.total_tvl_usd) }),
+        el('div', { class: 'v', text: fmtMoney(p.total_tvl_usd) }),
         el('div', { class: 's', text: 'across ' + DATA.board_size + ' pre-token protocols' })),
       el('div', { class: 'pcell' },
         el('div', { class: 'k', text: 'Median 7d change' }),
@@ -230,8 +286,8 @@
             n.watchlist ? el('span', { class: 'badge wl', text: 'Watchlist' }) : el('span', { class: 'badge', text: 'Early find' })),
           el('div', { class: 'nc-date', text: 'First tracked ' + n.listed_at }),
           el('div', { class: 'nc-figs' },
-            el('span', null, el('span', { class: 'nc-k', text: 'TVL ' }), fmtUsd(n.tvl_usd)),
-            el('span', null, el('span', { class: 'nc-k', text: 'Implied ' }), fmtUsd(n.implied_value_usd))),
+            el('span', null, el('span', { class: 'nc-k', text: 'TVL ' }), fmtMoney(n.tvl_usd)),
+            el('span', null, el('span', { class: 'nc-k', text: 'Implied ' }), fmtMoney(n.implied_value_usd))),
           el('div', { class: 'psub', text: n.category || 'Uncategorized' }));
       })));
   }
@@ -287,7 +343,7 @@
               el('span', { class: 'badge' + (r.cost === 0 ? ' good' : ''), text: COST_L[r.cost] }),
               el('span', { class: 'badge' + (r.diff === 2 ? ' risk' : ''), text: DIFF_L[r.diff] }))),
           el('td', { class: 'num' },
-            el('div', { text: fmtUsd(r.tvl_usd) }),
+            el('div', { text: fmtMoney(r.tvl_usd) }),
             el('div', { class: 'tbar', 'aria-hidden': 'true' },
               el('div', { class: 'tfill', style: 'width:' + (maxTvl > 0 ? (r.tvl_usd / maxTvl * 100) : 0).toFixed(1) + '%' }))),
           el('td', { class: dcls },
@@ -297,7 +353,7 @@
             el('div', null, el('span', { class: 'big', text: r.air + '%' })),
             el('div', { class: 'tbar', 'aria-hidden': 'true' },
               el('div', { class: 'tfill', style: 'width:' + r.air + '%' }))),
-          el('td', { class: 'num' }, el('span', { class: 'big', text: fmtUsd(r.implied_value_usd) }))
+          el('td', { class: 'num' }, el('span', { class: 'big', text: fmtMoney(r.implied_value_usd) }))
         ));
       });
       main = el('div', { class: 'panel' }, el('table', null,
@@ -335,7 +391,7 @@
     var maxs = [sc.prop_weight, sc.tvl_weight, sc.age_weight, sc.momentum_weight, sc.breadth_weight];
     var notes = [
       'the shrunk share of ' + (row.category || 'Uncategorized') + ' protocols in the snapshot that already record a token — shrinkage prior ' + sc.prop_prior,
-      fmtUsd(row.tvl_usd) + ' on a log ramp from ' + fmtUsd(sc.tvl_floor_usd) + ' (no points) to ' + fmtUsd(sc.tvl_full_usd) + ' (full points)',
+      fmtMoney(row.tvl_usd) + ' on a log ramp from ' + fmtMoney(sc.tvl_floor_usd) + ' (no points) to ' + fmtMoney(sc.tvl_full_usd) + ' (full points)',
       fmtAge(row.age_days) + ' with no token on record' + (row.age_days === null || row.age_days === undefined ? ' — no date on record, counted as ' + sc.unknown_age_days + ' days' : ''),
       'a 7-day TVL change of ' + fmtPct(row.change_7d) + ', mapped from ' + sc.momentum_floor_pct + '% across ' + sc.momentum_span_pct + ' points',
       (row.chains || []).length + ' chain(s) served; full points at ' + sc.breadth_full_chains,
@@ -359,8 +415,8 @@
     var costText = row.cost === 0
       ? 'Free to join: an account signup, no position locked, any balance stays spendable.'
       : row.cost === 2
-        ? 'Capital: the farm plan’s core step (step 2) locks a position of $150 or more — the amount is stated there.'
-        : 'Low $: the plan works a small balance; its core step commits under $150.';
+        ? 'Capital: the farm plan’s core step (step 2) locks a position of ' + fmtMoney(150) + ' or more — the amount is stated there.'
+        : 'Low $: the plan works a small balance; its core step commits under ' + fmtMoney(150) + '.';
     var facts = [
       ['Snapshot window', WIN_L[row.win]],
       ['First tracked', row.listed_at || 'unrecorded'],
@@ -395,8 +451,8 @@
         el('div', { class: 'pnote', text: note }));
     }
     var parts = [
-      pbar('TVL vs the field', row.tvl_pct, fmtUsd(row.tvl_usd) + ' against ' + DATA.board_size + ' ranked protocols'),
-      pbar('Implied value vs the field', row.value_pct, fmtUsd(row.implied_value_usd) + ' — the board’s ranking made visible'),
+      pbar('TVL vs the field', row.tvl_pct, fmtMoney(row.tvl_usd) + ' against ' + DATA.board_size + ' ranked protocols'),
+      pbar('Implied value vs the field', row.value_pct, fmtMoney(row.implied_value_usd) + ' — the board’s ranking made visible'),
     ];
     var own = mult(row);
     var med = row.cat_median_mult;
@@ -448,11 +504,11 @@
     var facts = [
       ['Category', row.category || 'Uncategorized'],
       ['Chains', (row.chains || []).join(', ') || 'unrecorded'],
-      ['TVL', fmtUsd(row.tvl_usd)],
+      ['TVL', fmtMoney(row.tvl_usd)],
       ['TVL change, 7d', fmtPct(row.change_7d)],
       ['First tracked', row.listed_at || 'unrecorded'],
       ['Age with no token', fmtAge(row.age_days)],
-      ['On the watchlist', row.watchlist ? 'Yes — above the $' + Math.round(DATA.floor_usd / 1e6) + 'M floor' : 'No — an early find'],
+      ['On the watchlist', row.watchlist ? 'Yes — above the ' + fmtMoney(DATA.floor_usd) + ' floor' : 'No — an early find'],
       ['Token', 'none on record'],
       ['Implied multiple', mult(row) === null ? 'n/a' : fmtRatio(mult(row)) + ' of TVL'],
     ];
@@ -466,21 +522,21 @@
           row.watchlist ? el('span', { class: 'badge wl', text: 'Watchlist' }) : el('span', { class: 'badge', text: 'Early find' }))),
       el('div', { class: 'stats', style: 'margin-top:16px' },
         statTile('Rank', '#' + row.rank, 'of ' + DATA.board_size + ' priced'),
-        statTile('TVL', fmtUsd(row.tvl_usd), 'the snapshot’s figure'),
+        statTile('TVL', fmtMoney(row.tvl_usd), 'the snapshot’s figure'),
         statTile('TVL change, 7d', fmtPct(row.change_7d), 'momentum into a launch'),
-        statTile('Implied value', fmtUsd(row.implied_value_usd), mult(row) === null ? '' : fmtRatio(mult(row)) + ' of TVL')),
+        statTile('Implied value', fmtMoney(row.implied_value_usd), mult(row) === null ? '' : fmtRatio(mult(row)) + ' of TVL')),
       el('div', { class: 'detail-grid' },
         el('div', { class: 'col' },
           outlookCard(row),
           standCard(row),
           el('section', { class: 'card' },
             el('h3', { text: 'How the model prices it' }),
-            frow('TVL', null, 'the snapshot’s figure', fmtUsd(row.tvl_usd), 'base', false),
-            frow('R · comparable multiple', row.comp_ratio, row.comp_count + ' launched ' + (row.category || '') + ' protocols set this price', fmtUsd(Math.round(afterComp)), '', true),
-            frow('G · momentum', row.growth_multiplier, '7-day TVL change of ' + fmtPct(row.change_7d), fmtUsd(Math.round(afterGrowth)), '', true),
-            frow('M · track record', row.maturity_multiplier, fmtAge(row.age_days) + ' with no token on record', fmtUsd(Math.round(afterMat)), '', true),
-            frow('B · breadth', row.breadth_multiplier, (row.chains || []).length + ' chain(s) served', fmtUsd(Math.round(afterMat * row.breadth_multiplier)), '', true),
-            frow('Implied value', null, 'the model’s estimate, not a price or a promise', fmtUsd(row.implied_value_usd), 'total', false),
+            frow('TVL', null, 'the snapshot’s figure', fmtMoney(row.tvl_usd), 'base', false),
+            frow('R · comparable multiple', row.comp_ratio, row.comp_count + ' launched ' + (row.category || '') + ' protocols set this price', fmtMoney(Math.round(afterComp)), '', true),
+            frow('G · momentum', row.growth_multiplier, '7-day TVL change of ' + fmtPct(row.change_7d), fmtMoney(Math.round(afterGrowth)), '', true),
+            frow('M · track record', row.maturity_multiplier, fmtAge(row.age_days) + ' with no token on record', fmtMoney(Math.round(afterMat)), '', true),
+            frow('B · breadth', row.breadth_multiplier, (row.chains || []).length + ' chain(s) served', fmtMoney(Math.round(afterMat * row.breadth_multiplier)), '', true),
+            frow('Implied value', null, 'the model’s estimate, not a price or a promise', fmtMoney(row.implied_value_usd), 'total', false),
             el('div', { class: 'note', text: 'Bars share one scale, ×0 to ×2.5; the tick marks ×1.' })),
           el('section', { class: 'card' },
             el('h3', { text: 'The record' }),
@@ -510,17 +566,17 @@
           el('span', { class: 'pname', text: r.name }),
           el('div', { class: 'psub', text: (r.category || 'Uncategorized') + ' · ' + ((r.chains || []).slice(0, 3).join(', ') || '') })),
         el('td', { class: 'num', text: r.symbol || '—' }),
-        el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }),
+        el('td', { class: 'num', text: fmtMoney(r.tvl_usd) }),
         el('td', { class: r.change_7d > 0 ? 'delta up' : (r.change_7d < 0 ? 'delta down' : 'delta flat'), text: fmtPct(r.change_7d) }),
-        el('td', { class: 'num', text: fmtUsd(r.mcap_usd) }),
+        el('td', { class: 'num', text: fmtMoney(r.mcap_usd) }),
         el('td', { class: 'num', text: r.tvl_usd > 0 && r.mcap_usd ? fmtRatio(r.mcap_usd / r.tvl_usd) : 'n/a' })));
     });
     return el('div', null,
       el('div', { class: 'stats' },
         statTile('Protocols trading', String(DATA.live_total), 'never ranked by the model'),
         statTile('Shown here', String(DATA.live.length), 'the largest by TVL'),
-        statTile('Their combined TVL', fmtUsd(tvlSum), 'of the ones shown'),
-        statTile('Combined market cap', fmtUsd(mcapSum), 'a fact, not an estimate')),
+        statTile('Their combined TVL', fmtMoney(tvlSum), 'of the ones shown'),
+        statTile('Combined market cap', fmtMoney(mcapSum), 'a fact, not an estimate')),
       el('div', { class: 'panel' }, el('table', { class: 'compact' },
         el('caption', { text: 'Already trading: the ' + DATA.live_total + ' protocols whose token exists are never ranked by the model — their market cap is a fact, not an estimate. The largest ' + DATA.live.length + ' are shown; their FDV/TVL ratios are the comparables the radar prices from.' }),
         el('thead', null, el('tr', null,
@@ -541,7 +597,7 @@
       return el('div', { class: 'catrow' },
         el('div', { class: 'cathead' },
           el('span', { text: name }),
-          el('span', { class: 'catfig', text: fmtUsd(tvl) + ' · ' + count + ' ranked' })),
+          el('span', { class: 'catfig', text: fmtMoney(tvl) + ' · ' + count + ' ranked' })),
         el('div', { class: 'cattrack', 'aria-hidden': 'true' },
           el('div', { class: 'catfill', style: 'width:' + (max > 0 ? (tvl / max * 100) : 0).toFixed(1) + '%' })));
     }
@@ -579,9 +635,9 @@
             el('p', null, el('b', { text: 'B — breadth. ' }), '1 + ' + m.breadth_per_chain + ' per extra chain served, capped at ' + m.breadth_max_chains + '. Distribution a token launches into is worth a little, not a lot.')),
           el('section', { class: 'card' },
             el('h3', { text: 'How SOONAIR scores' }),
-            el('p', null, el('b', { text: 'Airdrop likelihood, 0–100. ' }), 'Five parts, every one computed from the snapshot and printed in full on each protocol’s detail page. Category launch share, ' + DATA.score.prop_weight + ' points: the share of the category’s own protocols that already record a token, shrunk toward the snapshot-wide share — ' + DATA.launched_count + ' of ' + DATA.snapshot_count + ' protocols (' + Math.round(DATA.launch_share * 100) + '%) — with a prior of ' + DATA.score.prop_prior + ', the same shrinkage R uses. TVL band, ' + DATA.score.tvl_weight + ': a log ramp from ' + fmtUsd(DATA.score.tvl_floor_usd) + ' to ' + fmtUsd(DATA.score.tvl_full_usd) + '. Track record, ' + DATA.score.age_weight + ': 1 − exp(−age / ' + DATA.score.age_tau_days + ' days), an unrecorded listing date counting as ' + DATA.score.unknown_age_days + ' days. Momentum, ' + DATA.score.momentum_weight + ': the 7-day change mapped from ' + DATA.score.momentum_floor_pct + '% across ' + DATA.score.momentum_span_pct + ' points. Breadth, ' + DATA.score.breadth_weight + ': chains served, full at ' + DATA.score.breadth_full_chains + '.'),
+            el('p', null, el('b', { text: 'Airdrop likelihood, 0–100. ' }), 'Five parts, every one computed from the snapshot and printed in full on each protocol’s detail page. Category launch share, ' + DATA.score.prop_weight + ' points: the share of the category’s own protocols that already record a token, shrunk toward the snapshot-wide share — ' + DATA.launched_count + ' of ' + DATA.snapshot_count + ' protocols (' + Math.round(DATA.launch_share * 100) + '%) — with a prior of ' + DATA.score.prop_prior + ', the same shrinkage R uses. TVL band, ' + DATA.score.tvl_weight + ': a log ramp from ' + fmtMoney(DATA.score.tvl_floor_usd) + ' to ' + fmtMoney(DATA.score.tvl_full_usd) + '. Track record, ' + DATA.score.age_weight + ': 1 − exp(−age / ' + DATA.score.age_tau_days + ' days), an unrecorded listing date counting as ' + DATA.score.unknown_age_days + ' days. Momentum, ' + DATA.score.momentum_weight + ': the 7-day change mapped from ' + DATA.score.momentum_floor_pct + '% across ' + DATA.score.momentum_span_pct + ' points. Breadth, ' + DATA.score.breadth_weight + ': chains served, full at ' + DATA.score.breadth_full_chains + '.'),
             el('p', null, el('b', { text: 'Snapshot window. ' }), 'An estimate from age alone — protocols do not publish snapshot dates, so no date is ever shown as one. Under ' + DATA.score.window_open_days + ' days since first tracked: window likely open. Under ' + (DATA.score.window_risk_days / 365) + ' years: window uncertain, and a protocol with no date on record reads uncertain too. Older: snapshot risk — the user snapshot, if there ever is one, was likely already taken. The first-tracked date beside the call is a fact from the record.'),
-            el('p', null, el('b', { text: 'Entry cost. ' }), 'Read off the row’s own farm plan, never its reputation. Free: the payments and card family, whose joining is an account signup and locks no position. Capital: the plan’s core step locks a position — its text commits to supply, deposit, stake, mint, margin, collateral or a liquidity pool — of $150 or more, the plan’s own capital figure for a protocol of its size. Low $: everything smaller, a balance worked rather than a position locked.'),
+            el('p', null, el('b', { text: 'Entry cost. ' }), 'Read off the row’s own farm plan, never its reputation. Free: the payments and card family, whose joining is an account signup and locks no position. Capital: the plan’s core step locks a position — its text commits to supply, deposit, stake, mint, margin, collateral or a liquidity pool — of ' + fmtMoney(150) + ' or more, the plan’s own capital figure for a protocol of its size. Low $: everything smaller, a balance worked rather than a position locked.'),
             el('p', null, el('b', { text: 'Difficulty. ' }), 'Points: 1 for a plan of 6 or more steps, the cost class itself (Free 0, Low $ 1, Capital 2), and 1 for a protocol spread over 5 or more chains. A total of 0–2 reads Easy, 3 Medium, 4 Hard.'),
             el('p', null, 'These four calls are estimates with their weights in the open, not measurements: disagree with a weight and every figure on the board can be re-derived by hand.')),
           el('section', { class: 'card' },
@@ -609,8 +665,9 @@
   function render() {
     app.textContent = '';
     var wrap = el('div', { class: 'wrap' });
-    // the masthead: one coloured band carrying the wordmark, the provenance chip and the view tabs
-    var mast = el('header', { class: 'masthead' }, topbar());
+    // the masthead: one coloured band carrying the wordmark, the stat cluster, the currency
+    // control row and the view tabs
+    var mast = el('header', { class: 'masthead' }, topbar(), mastctl());
     var selected = state.selected ? DATA.rows.filter(function (r) { return r.slug === state.selected; })[0] : null;
     if (selected) {
       wrap.appendChild(mast);
