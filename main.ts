@@ -1,4 +1,4 @@
-// Sonar, a token launch radar (Node 22, standard library only).
+// SOONAIR, a soon airdrop radar (Node 22, standard library only).
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), prices
 // every rankable pre-token protocol with the comparables model in lib/model.ts, writes the ranked
@@ -34,7 +34,7 @@ function arg(name: string, fallback: string): string {
 const inputArg = arg('input', '/input');
 const inputFile = inputArg.endsWith('.json') ? inputArg : join(inputArg, 'snapshot.json');
 if (!existsSync(inputFile)) {
-  process.stderr.write(`sonar: no snapshot at ${inputFile}: pass --input <snapshot.json|directory> or mount the sealed /input\n`);
+  process.stderr.write(`soonair: no snapshot at ${inputFile}: pass --input <snapshot.json|directory> or mount the sealed /input\n`);
   process.exit(2);
 }
 const out = arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
@@ -43,7 +43,7 @@ const snapshot = parseSnapshot(readFileSync(inputFile, 'utf8'));
 const { board, radar } = buildRadar(snapshot);
 const issue = boardIssue(board, snapshot);
 if (issue !== null) {
-  process.stderr.write(`sonar: the model wrote a board the gate refuses: ${issue}\n`);
+  process.stderr.write(`soonair: the model wrote a board the gate refuses: ${issue}\n`);
   process.exit(1);
 }
 
@@ -69,12 +69,12 @@ function copyFiles(from: string, to: string): string[] {
 const dashFiles = copyFiles(join(here, 'dashboard'), join(out, 'dashboard'));
 const shots = copyFiles(join(here, 'screenshots'), join(out, 'screenshots'));
 if (shots.length < 3 || shots.length > SCREENSHOT_CAPS.max) {
-  process.stderr.write(`sonar: screenshots/ holds ${shots.length} images: hand in 3 or 4, the board, a detail view and a filtered view\n`);
+  process.stderr.write(`soonair: screenshots/ holds ${shots.length} images: hand in 3 or 4, the board, a detail view and a filtered view\n`);
   process.exit(1);
 }
 for (const name of shots) {
   if (!IMAGE_NAME.test(name)) {
-    process.stderr.write(`sonar: screenshots/${name}: a name is letters, digits and . _ -, 1 to 128 characters\n`);
+    process.stderr.write(`soonair: screenshots/${name}: a name is letters, digits and . _ -, 1 to 128 characters\n`);
     process.exit(1);
   }
 }
@@ -83,6 +83,6 @@ for (const name of shots) {
 writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEXT_MAX_BYTES, screenshots: SCREENSHOT_CAPS, dashboard: DASHBOARD_CAPS }));
 
 process.stdout.write(
-  `sonar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows ranked (${radar.early_size} early, ${radar.live_total} live-token protocols set aside)\n` +
-    `sonar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (${dashFiles.length} files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
+  `soonair: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows ranked (${radar.early_size} early, ${radar.live_total} live-token protocols set aside)\n` +
+    `soonair: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (${dashFiles.length} files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );

@@ -1,4 +1,4 @@
-// Sonar dashboard. Reads window.RADAR (written beside this folder by main.ts from the same board
+// SOONAIR dashboard. Reads window.RADAR (written beside this folder by main.ts from the same board
 // board.json carries) and renders three views: the ranked radar, the live-token set aside, and the
 // model itself. Every figure on the page comes from that one object; the page fetches nothing.
 // The presentation: a coloured masthead over a desktop workspace — a filter rail beside a dense
@@ -33,6 +33,12 @@
   }
   function fmtRatio(n) { return 'x' + Number(n).toFixed(2); }
   function mult(r) { return r.tvl_usd > 0 ? r.implied_value_usd / r.tvl_usd : null; }
+
+  // the scoring layer's three calls, as words: full names for panels, short ones for board badges
+  var WIN_L = ['Window likely open', 'Window uncertain', 'Snapshot risk: likely taken'];
+  var WIN_S = ['Window open', 'Window uncertain', 'Snapshot risk'];
+  var COST_L = ['Free', 'Low $', 'Capital'];
+  var DIFF_L = ['Easy', 'Medium', 'Hard'];
 
   function el(tag, attrs) {
     var node = document.createElement(tag);
@@ -97,7 +103,7 @@
       else if (key === 'tvl') { av = a.tvl_usd; bv = b.tvl_usd; }
       else if (key === 'implied') { av = a.implied_value_usd; bv = b.implied_value_usd; }
       else if (key === 'change') { av = a.change_7d === null || a.change_7d === undefined ? -Infinity : a.change_7d; bv = b.change_7d === null || b.change_7d === undefined ? -Infinity : b.change_7d; }
-      else if (key === 'mult') { av = mult(a) || 0; bv = mult(b) || 0; }
+      else if (key === 'air') { av = a.air; bv = b.air; }
       else { av = a.rank; bv = b.rank; }
       if (av < bv) return -dir;
       if (av > bv) return dir;
@@ -113,8 +119,8 @@
   function topbar() {
     return el('div', { class: 'topbar' },
       el('div', { class: 'brand' },
-        el('h1', null, 'SON', el('em', null, 'AR')),
-        el('div', { class: 'tag', text: 'Token launch radar — protocols that record no token yet, priced from the ones that launched.' })
+        el('h1', null, 'SOON', el('em', null, 'AIR')),
+        el('div', { class: 'tag', text: 'Soon-airdrop radar — protocols that record no token yet, scored for the launch that may be coming: what it could be worth, how likely a drop looks, and what to do before any user snapshot is taken.' })
       ),
       el('div', { class: 'topmeta' },
         'Snapshot ', el('b', { text: DATA.as_of }), ' · ' + DATA.board_size + ' protocols ranked')
@@ -275,7 +281,11 @@
             el('div', null,
               el('span', { class: 'pname', text: r.name }),
               r.watchlist ? el('span', { class: 'badge wl', text: 'Watchlist' }) : el('span', { class: 'badge', text: 'Early find' })),
-            el('div', { class: 'psub', text: sub })),
+            el('div', { class: 'psub', text: sub }),
+            el('div', { class: 'tags' },
+              el('span', { class: 'badge' + (r.win === 0 ? ' good' : (r.win === 2 ? ' risk' : '')), text: WIN_S[r.win] }),
+              el('span', { class: 'badge' + (r.cost === 0 ? ' good' : ''), text: COST_L[r.cost] }),
+              el('span', { class: 'badge' + (r.diff === 2 ? ' risk' : ''), text: DIFF_L[r.diff] }))),
           el('td', { class: 'num' },
             el('div', { text: fmtUsd(r.tvl_usd) }),
             el('div', { class: 'tbar', 'aria-hidden': 'true' },
@@ -283,20 +293,23 @@
           el('td', { class: dcls },
             el('div', { text: fmtPct(r.change_7d) }),
             changeBar(r.change_7d)),
-          el('td', { class: 'num' }, el('span', { class: 'big', text: fmtUsd(r.implied_value_usd) })),
-          el('td', { class: 'num', text: mult(r) === null ? 'n/a' : fmtRatio(mult(r)) })
+          el('td', { class: 'num' },
+            el('div', null, el('span', { class: 'big', text: r.air + '%' })),
+            el('div', { class: 'tbar', 'aria-hidden': 'true' },
+              el('div', { class: 'tfill', style: 'width:' + r.air + '%' }))),
+          el('td', { class: 'num' }, el('span', { class: 'big', text: fmtUsd(r.implied_value_usd) }))
         ));
       });
       main = el('div', { class: 'panel' }, el('table', null,
           el('caption', { text: 'Pre-token protocols ranked by implied value — the model’s estimate of what a launch would be worth.' }),
           el('thead', null, el('tr', null,
             sortHead('rank', '#'), sortHead('name', 'Protocol'), sortHead('tvl', 'TVL', true),
-            sortHead('change', '7d', true), sortHead('implied', 'Implied value', true),
-            sortHead('mult', 'Implied ×', true))),
+            sortHead('change', '7d', true), sortHead('air', 'Airdrop est.', true),
+            sortHead('implied', 'Implied value', true))),
           tbody));
     }
     var head = el('p', { class: 'count-line' },
-      el('b', { text: list.length + ' protocols' }), ' shown · ' + covered + ' of ' + DATA.watchlist_size + ' on the watchlist · select a row for its workings and farm plan');
+      el('b', { text: list.length + ' protocols' }), ' shown · ' + covered + ' of ' + DATA.watchlist_size + ' on the watchlist · select a row for its workings and farm plan · the Airdrop % and the window / cost / difficulty badges are model estimates — the method is on The model tab');
     var mainWrap = el('div', null, head, main);
     return el('div', null,
       pulseStrip(),
@@ -313,6 +326,61 @@
     var cost = ti >= 0 ? rest.slice(0, ti) : rest;
     var time = ti >= 0 ? rest.slice(ti + 2) : '';
     return { act: s.slice(0, ci) + '.', meta: cost + (time ? ' · ' + time : '') };
+  }
+
+  // ---- the airdrop outlook: the scoring layer's four calls for one protocol, parts shown in full
+  function outlookCard(row) {
+    var sc = DATA.score;
+    var names = ['Category launch share', 'TVL band', 'Track record', '7d momentum', 'Chain breadth'];
+    var maxs = [sc.prop_weight, sc.tvl_weight, sc.age_weight, sc.momentum_weight, sc.breadth_weight];
+    var notes = [
+      'the shrunk share of ' + (row.category || 'Uncategorized') + ' protocols in the snapshot that already record a token — shrinkage prior ' + sc.prop_prior,
+      fmtUsd(row.tvl_usd) + ' on a log ramp from ' + fmtUsd(sc.tvl_floor_usd) + ' (no points) to ' + fmtUsd(sc.tvl_full_usd) + ' (full points)',
+      fmtAge(row.age_days) + ' with no token on record' + (row.age_days === null || row.age_days === undefined ? ' — no date on record, counted as ' + sc.unknown_age_days + ' days' : ''),
+      'a 7-day TVL change of ' + fmtPct(row.change_7d) + ', mapped from ' + sc.momentum_floor_pct + '% across ' + sc.momentum_span_pct + ' points',
+      (row.chains || []).length + ' chain(s) served; full points at ' + sc.breadth_full_chains,
+    ];
+    function srow(i) {
+      return el('div', { class: 'prow' },
+        el('div', { class: 'phead' },
+          el('span', { text: names[i] }),
+          el('span', { class: 'pval', text: row.ap[i] + ' of ' + maxs[i] })),
+        el('div', { class: 'ptrack slim', 'aria-hidden': 'true' },
+          el('div', { class: 'pfill', style: 'width:' + (maxs[i] > 0 ? (row.ap[i] / maxs[i] * 100) : 0).toFixed(1) + '%' })),
+        el('div', { class: 'pnote', text: notes[i] }));
+    }
+    var winText = row.win === 0
+      ? 'First tracked ' + row.listed_at + ' — young enough that a user snapshot, if the protocol ever takes one, is probably still ahead of it.'
+      : row.win === 2
+        ? 'First tracked ' + row.listed_at + ' — a protocol this established has probably already taken any user snapshot it means to take; late farming here is a bet, not a position.'
+        : row.listed_at
+          ? 'First tracked ' + row.listed_at + ' — old enough to have snapshotted, young enough that it may not have; the estimate cannot call it.'
+          : 'No first-tracked date on record, so the protocol cannot be aged and the window reads uncertain.';
+    var costText = row.cost === 0
+      ? 'Free to join: an account signup, no position locked, any balance stays spendable.'
+      : row.cost === 2
+        ? 'Capital: the farm plan’s core step (step 2) locks a position of $150 or more — the amount is stated there.'
+        : 'Low $: the plan works a small balance; its core step commits under $150.';
+    var facts = [
+      ['Snapshot window', WIN_L[row.win]],
+      ['First tracked', row.listed_at || 'unrecorded'],
+      ['Entry cost', COST_L[row.cost]],
+      ['Difficulty', DIFF_L[row.diff]],
+    ];
+    return el('section', { class: 'card' },
+      el('h3', { text: 'Airdrop outlook — model estimates' }),
+      el('div', { class: 'phead' },
+        el('span', { text: 'Airdrop likelihood' }),
+        el('span', { class: 'pval airbig', text: row.air + '%' })),
+      el('div', { class: 'ptrack', 'aria-hidden': 'true' },
+        el('div', { class: 'pfill', style: 'width:' + row.air + '%' })),
+      el('div', { class: 'pnote', text: 'An estimate from the snapshot’s record alone — not a promise that a token, let alone a drop, exists. Its five parts:' }),
+      [0, 1, 2, 3, 4].map(srow),
+      el('div', { class: 'facts', style: 'margin-top:14px' }, facts.map(function (f) {
+        return el('div', null, el('span', { text: f[0] }), el('b', { text: f[1] }));
+      })),
+      el('div', { class: 'note', text: winText }),
+      el('div', { class: 'note', text: costText + ' Difficulty ' + DIFF_L[row.diff].toLowerCase() + ': a ' + row.farm_steps.length + '-step plan at ' + COST_L[row.cost].toLowerCase() + ' cost across ' + (row.chains || []).length + ' chain(s). Every rule behind these calls is printed on The model tab.' }));
   }
 
   // ---- where a protocol stands: its size against the whole field, its multiple against its kind
@@ -403,6 +471,7 @@
         statTile('Implied value', fmtUsd(row.implied_value_usd), mult(row) === null ? '' : fmtRatio(mult(row)) + ' of TVL')),
       el('div', { class: 'detail-grid' },
         el('div', { class: 'col' },
+          outlookCard(row),
           standCard(row),
           el('section', { class: 'card' },
             el('h3', { text: 'How the model prices it' }),
@@ -509,6 +578,13 @@
             el('p', null, el('b', { text: 'M — track record. ' }), m.maturity_base + ' + ' + m.maturity_range + ' × (1 − exp(−age / ' + m.maturity_tau_days + ' days)). Years run with no token on record mean a proven product a launch can price; an unrecorded listing date counts as ' + m.unknown_age_days + ' days.'),
             el('p', null, el('b', { text: 'B — breadth. ' }), '1 + ' + m.breadth_per_chain + ' per extra chain served, capped at ' + m.breadth_max_chains + '. Distribution a token launches into is worth a little, not a lot.')),
           el('section', { class: 'card' },
+            el('h3', { text: 'How SOONAIR scores' }),
+            el('p', null, el('b', { text: 'Airdrop likelihood, 0–100. ' }), 'Five parts, every one computed from the snapshot and printed in full on each protocol’s detail page. Category launch share, ' + DATA.score.prop_weight + ' points: the share of the category’s own protocols that already record a token, shrunk toward the snapshot-wide share — ' + DATA.launched_count + ' of ' + DATA.snapshot_count + ' protocols (' + Math.round(DATA.launch_share * 100) + '%) — with a prior of ' + DATA.score.prop_prior + ', the same shrinkage R uses. TVL band, ' + DATA.score.tvl_weight + ': a log ramp from ' + fmtUsd(DATA.score.tvl_floor_usd) + ' to ' + fmtUsd(DATA.score.tvl_full_usd) + '. Track record, ' + DATA.score.age_weight + ': 1 − exp(−age / ' + DATA.score.age_tau_days + ' days), an unrecorded listing date counting as ' + DATA.score.unknown_age_days + ' days. Momentum, ' + DATA.score.momentum_weight + ': the 7-day change mapped from ' + DATA.score.momentum_floor_pct + '% across ' + DATA.score.momentum_span_pct + ' points. Breadth, ' + DATA.score.breadth_weight + ': chains served, full at ' + DATA.score.breadth_full_chains + '.'),
+            el('p', null, el('b', { text: 'Snapshot window. ' }), 'An estimate from age alone — protocols do not publish snapshot dates, so no date is ever shown as one. Under ' + DATA.score.window_open_days + ' days since first tracked: window likely open. Under ' + (DATA.score.window_risk_days / 365) + ' years: window uncertain, and a protocol with no date on record reads uncertain too. Older: snapshot risk — the user snapshot, if there ever is one, was likely already taken. The first-tracked date beside the call is a fact from the record.'),
+            el('p', null, el('b', { text: 'Entry cost. ' }), 'Read off the row’s own farm plan, never its reputation. Free: the payments and card family, whose joining is an account signup and locks no position. Capital: the plan’s core step locks a position — its text commits to supply, deposit, stake, mint, margin, collateral or a liquidity pool — of $150 or more, the plan’s own capital figure for a protocol of its size. Low $: everything smaller, a balance worked rather than a position locked.'),
+            el('p', null, el('b', { text: 'Difficulty. ' }), 'Points: 1 for a plan of 6 or more steps, the cost class itself (Free 0, Low $ 1, Capital 2), and 1 for a protocol spread over 5 or more chains. A total of 0–2 reads Easy, 3 Medium, 4 Hard.'),
+            el('p', null, 'These four calls are estimates with their weights in the open, not measurements: disagree with a weight and every figure on the board can be re-derived by hand.')),
+          el('section', { class: 'card' },
             el('h3', { text: 'Who is ranked, who is not' }),
             el('p', null, 'The watchlist is the floor: all ' + DATA.watchlist_size + ' of its protocols are ranked, always. Around it the radar applies the watchlist’s own product test at every size. A protocol is ranked when it records no token and is not a wrapped, staked or bridged product of one that trades, not an exchange and not a versioned pool of another protocol.'),
             el('p', null, 'Protocols whose token already trades are set aside and shown at market value in the Live view. No protocol name is special-cased anywhere in the model: one function scores every row, and the workings of every row are on its detail page.'),
@@ -527,7 +603,7 @@
   }
 
   function foot() {
-    return el('div', { class: 'foot', text: 'Data: ' + DATA.source + '. Implied values are the ' + DATA.model_version + ' model’s estimates from that snapshot alone; a protocol shown here records no token in it, which is a statement about the record, not about the world. Farm plans are starting points, not advice.' });
+    return el('div', { class: 'foot', text: 'Data: ' + DATA.source + '. Implied values and the airdrop outlook are the ' + DATA.model_version + ' model’s estimates from that snapshot alone; a protocol shown here records no token in it, which is a statement about the record, not about the world. Farm plans are starting points, not advice.' });
   }
 
   function render() {

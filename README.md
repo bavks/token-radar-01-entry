@@ -1,30 +1,33 @@
-# Sonar — a token launch radar
+# SOONAIR — a soon airdrop radar
 
-Sonar reads the sealed token-radar-01 snapshot (DefiLlama's protocol index, frozen by the house)
-and answers two questions about every protocol that records no token yet: what would a launch be
-worth if it were priced the way this market already prices launched protocols, and what should a
-reader do to be positioned for it.
+SOONAIR (formerly Sonar) reads the sealed token-radar-01 snapshot (DefiLlama's protocol index,
+frozen by the house) and hunts the next airdrop: for every protocol that records no token yet it
+estimates what a launch would be worth if it were priced the way this market already prices
+launched protocols, how likely a drop looks, whether the window to farm it is probably still
+open, what joining costs and how hard the farm is — and gives the reader a plan to be positioned
+before any user snapshot is taken.
 
 `main.ts` (Node 22, standard library only) reads `/input/snapshot.json`, writes the ranked board
 to `/output/board.json`, writes the dashboard's data to `/output/data.js`, copies `dashboard/` and
 `screenshots/` into `/output`, and writes `/output/dossier.json` with the vendored
 `vendor/makefun-board.ts`, exactly as the bounty requires. The dashboard is a static page — no
 framework, no network — laid out as a desktop workspace: a filter rail (search, category, chain,
-watchlist-only) beside a dense six-column board (rank, protocol, TVL, 7-day change, implied value
-and implied multiple), a two-column detail view per protocol with the model's workings as factor
-bars beside the farm-plan timeline, a live-token view with a summary strip, and a model view that
-states the method beside its comparable set. Every graphic on the page is drawn from the board's
-own figures, which `lib/model.ts` aggregates into `data.js` beside the rows: a market-pulse strip
+watchlist-only) beside a dense board (rank, protocol, TVL, 7-day change, airdrop estimate and
+implied value, with the window, cost and difficulty calls carried as badges under each name), a
+two-column detail view per protocol whose airdrop outlook panel and pricing workings sit beside
+the farm-plan timeline, a live-token view with a summary strip, and a model view that states the
+method beside its comparable set. Every graphic on the page is drawn from the board's own
+figures, which `lib/model.ts` aggregates into `data.js` beside the rows: a market-pulse strip
 over the board (the ranked set's total TVL, its median 7-day change, gainers against losers as a
 proportion bar, and the newest listing by first-tracked date), a slim TVL bar and a signed
 centre-zero change bar inside each row, a newest-listings rail under the board, a category
-landscape of aggregate TVL on the model view, and — at the head of each detail view — the
-protocol's position in the field: TVL and implied-value percentile bars against all 198 ranked
-rows, and its implied multiple set against its own category's median. The snapshot carries no
-social, user or funding data, so the page shows none: freshness here means listing dates, and
-momentum means TVL change — the signals the record actually holds.
+landscape of aggregate TVL on the model view, and — in each detail view — the protocol's
+position in the field: TVL and implied-value percentile bars against all 198 ranked rows, and
+its implied multiple set against its own category's median. The snapshot carries no social,
+user or funding data, so the page shows none: freshness here means listing dates, and momentum
+means TVL change — the signals the record actually holds.
 
-## The model (sonar-1)
+## The value model (soonair-1)
 
 One function scores every row; no protocol name is special-cased anywhere.
 
@@ -48,6 +51,34 @@ implied value = TVL × R(category) × G(7d growth) × M(track record) × B(chain
   not zeroed. An unrecorded listing date counts as 200 days.
 - **B — breadth.** `1 + 0.025 × min(chains − 1, 6)`. Each extra chain already served is
   distribution a token launches into — worth a little, capped at +15%.
+
+## The airdrop scoring layer
+
+A second set of figures, computed into `data.js` only — `board.json` never carries them — and
+published in full on the dashboard's model view under "How SOONAIR scores", so any number on the
+board can be re-derived by hand. Every one of them is a model estimate, labelled as such wherever
+it appears; none is a measurement, and none uses anything outside the snapshot.
+
+- **Airdrop likelihood, 0–100.** Five parts. *Category launch share*, 40 points: the share of
+  the category's own snapshot protocols that already record a token, shrunk toward the
+  snapshot-wide share (416 of 758, ≈55%) with a prior of 5 — the same shrinkage R uses.
+  *TVL band*, 25: a log ramp from $5M (no points) to $2B (full points). *Track record*, 15:
+  `1 − exp(−age_days / 400)`, an unrecorded listing date counting as 200 days. *Momentum*, 10:
+  the 7-day TVL change mapped from −20% across a 60-point span. *Breadth*, 10: chains served,
+  full at 6. The detail page prints all five parts of every row.
+- **Snapshot window.** Protocols do not publish snapshot dates, so SOONAIR shows an estimate
+  from age alone and never a date dressed as one: under 365 days since first tracked, *window
+  likely open*; under 1,095 days, *window uncertain* (a protocol with no listing date on record
+  reads uncertain too); older, *snapshot risk: likely taken*. The first-tracked date beside the
+  call is a fact from the record.
+- **Entry cost.** Read off the row's own farm plan. *Free*: the payments and card family, whose
+  joining is an account signup and locks no position. *Capital*: the plan's core step locks a
+  position — its text commits to supply, deposit, stake, mint, margin, collateral or a liquidity
+  pool — of $150 or more, the plan's own capital figure for a protocol of its size. *Low $*:
+  everything smaller, a balance worked rather than a position locked.
+- **Difficulty.** Points: 1 for a plan of 6 or more steps, the cost class itself (Free 0,
+  Low $ 1, Capital 2), and 1 for a protocol spread over 5 or more chains. A total of 0–2 reads
+  *Easy*, 3 *Medium*, 4 *Hard*.
 
 ## Who is ranked
 
@@ -80,4 +111,5 @@ mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input <path-to-snapshot.js
 
 Deterministic: the same snapshot always writes the same bytes. An implied value is this model's
 claim about a launch that has not happened, made from the snapshot alone — not a prediction that a
-token will exist, and not a price.
+token will exist, and not a price. The airdrop likelihood is the same kind of claim about a drop
+that has not been announced.

@@ -1,6 +1,19 @@
-// The Sonar model's one job: turn the sealed DefiLlama snapshot into a ranked board of protocols
+// The SOONAIR model's one job: turn the sealed DefiLlama snapshot into a ranked board of protocols
 // that record no token yet, each with the value a token would carry if it were priced the way the
 // snapshot's own launched protocols are priced, and a farm plan a reader can act on.
+//
+// THE SCORING LAYER (the dashboard's second set of figures, computed into data.js only — board.json
+// never carries them): SOONAIR also estimates, per protocol, how airdrop-ready it looks, from the
+// snapshot's record alone. The airdrop likelihood (0..100) is five published parts: the category's
+// launch propensity — the share of the category's snapshot protocols that already record a token,
+// shrunk toward the global share — worth 40; a log TVL band worth 25; track record worth 15; 7-day
+// momentum worth 10; chain breadth worth 10. Around it sit three stated classifications, never
+// measurements: a snapshot-window state from the protocol's age (under a year: window likely open;
+// under three: uncertain; older: snapshot risk, likely taken; no date on record: uncertain), an
+// entry cost class read off the farm plan itself (account-flavoured families are Free; a plan whose
+// core step locks $150 or more of position is Capital; anything smaller is Low $), and a difficulty
+// tier from plan length, cost class and chain count. Every weight and threshold is a constant below
+// and is printed on the dashboard's model view, so any figure can be re-derived by hand.
 //
 // THE MODEL (every number below is computed from the snapshot itself; no protocol name is ever
 // special-cased and no figure is typed in by hand except the stated constants):
@@ -100,7 +113,50 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the README quotes it. */
-export const MODEL_VERSION = 'sonar-1';
+export const MODEL_VERSION = 'soonair-1';
+
+/** The airdrop scoring layer's stated constants: the dashboard prints them beside the figures. */
+export interface ScoreConstants {
+  /** Points for the category's launch propensity, and the shrinkage prior behind that share. */
+  prop_weight: number;
+  prop_prior: number;
+  /** Points for the TVL band: a log ramp from tvl_floor_usd (no points) to tvl_full_usd (full). */
+  tvl_weight: number;
+  tvl_floor_usd: number;
+  tvl_full_usd: number;
+  /** Points for track record: age_weight x (1 - exp(-age / age_tau_days)); unknown age counts as unknown_age_days. */
+  age_weight: number;
+  age_tau_days: number;
+  unknown_age_days: number;
+  /** Points for momentum: change_7d mapped linearly from momentum_floor_pct (0) over momentum_span_pct points (full). */
+  momentum_weight: number;
+  momentum_floor_pct: number;
+  momentum_span_pct: number;
+  /** Points for breadth: full at breadth_full_chains chains. */
+  breadth_weight: number;
+  breadth_full_chains: number;
+  /** Snapshot-window thresholds in days of age: open below the first, at risk from the second. */
+  window_open_days: number;
+  window_risk_days: number;
+}
+
+export const SCORE: ScoreConstants = {
+  prop_weight: 40,
+  prop_prior: 5,
+  tvl_weight: 25,
+  tvl_floor_usd: 5_000_000,
+  tvl_full_usd: 2_000_000_000,
+  age_weight: 15,
+  age_tau_days: 400,
+  unknown_age_days: 200,
+  momentum_weight: 10,
+  momentum_floor_pct: -20,
+  momentum_span_pct: 60,
+  breadth_weight: 10,
+  breadth_full_chains: 6,
+  window_open_days: 365,
+  window_risk_days: 1095,
+};
 
 /** How many rows beyond the watchlist's 40 the radar adds, largest TVL first. */
 export const EARLY_ROWS = 180;
@@ -152,6 +208,17 @@ export interface RadarRow {
   /** This row's place in the field: the share of ranked rows below it, 0..100. Filled by buildRadar. */
   tvl_pct: number;
   value_pct: number;
+  /** SOONAIR's airdrop likelihood estimate, 0..100, and its five parts in SCORE order
+   * (propensity, TVL band, track record, momentum, breadth), each rounded to a tenth.
+   * Filled by buildRadar; the parts sum to the score, give or take the final rounding. */
+  air: number;
+  ap: [number, number, number, number, number];
+  /** Snapshot-window estimate: 0 window likely open, 1 uncertain, 2 snapshot risk. */
+  win: 0 | 1 | 2;
+  /** Entry cost class read off the farm plan: 0 Free, 1 Low $, 2 Capital. */
+  cost: 0 | 1 | 2;
+  /** Difficulty tier from plan length, cost class and chain count: 0 Easy, 1 Medium, 2 Hard. */
+  diff: 0 | 1 | 2;
   /** The median implied multiple of this row's category across the board; null when it cannot be formed. */
   cat_median_mult: number | null;
   comp_ratio: number;
@@ -216,6 +283,12 @@ export interface RadarData {
   floor_usd: number;
   model: ModelConstants;
   model_version: string;
+  /** The scoring layer's constants, and the snapshot's own launch record behind the propensity part:
+   * launched_count of snapshot_count protocols already record a token, a share of launch_share. */
+  score: ScoreConstants;
+  launched_count: number;
+  snapshot_count: number;
+  launch_share: number;
   global_comp_ratio: number;
   global_comp_count: number;
   comp_stats: CompStat[];
@@ -385,13 +458,18 @@ function gasOf(chain: string): string {
   return GAS_ASSET[chain] ?? 'the chain’s native gas token';
 }
 
-/** How much capital one farm position carries, from the protocol's own TVL: deeper protocols absorb more. */
-function capitalFor(p: SnapshotProtocol): number {
-  if (p.tvl_usd >= 1_000_000_000) return 500;
-  if (p.tvl_usd >= 250_000_000) return 250;
-  if (p.tvl_usd >= 50_000_000) return 150;
-  if (p.tvl_usd >= 10_000_000) return 75;
+/** How much capital one farm position carries, from TVL alone: deeper protocols absorb more. */
+function capitalForTvl(tvl: number): number {
+  if (tvl >= 1_000_000_000) return 500;
+  if (tvl >= 250_000_000) return 250;
+  if (tvl >= 50_000_000) return 150;
+  if (tvl >= 10_000_000) return 75;
   return 40;
+}
+
+/** How much capital one farm position carries, from the protocol's own TVL. */
+function capitalFor(p: SnapshotProtocol): number {
+  return capitalForTvl(p.tvl_usd);
 }
 
 /** How long to hold, from the protocol's age: younger protocols need a longer window to span weekly snapshots. */
@@ -422,8 +500,12 @@ const FAMILY_OF: Record<string, Family> = {
   Privacy: 'privacy',
 };
 
+function familyOfCategory(category: string | null): Family {
+  return (category !== null ? FAMILY_OF[category] : undefined) ?? 'other';
+}
+
 function familyOf(p: SnapshotProtocol): Family {
-  return (p.category !== null ? FAMILY_OF[p.category] : undefined) ?? 'other';
+  return familyOfCategory(p.category);
 }
 
 /** The family's core position: the one action that makes a wallet a real user of this protocol. */
@@ -525,6 +607,98 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): string[] {
   ];
 }
 
+// ---------------------------------------------------------------- the airdrop scoring layer
+
+const round1 = (n: number): number => Math.round(n * 10) / 10;
+
+/** The snapshot's launch record: how many of its protocols already record a token, overall and,
+ * per category, each category's share shrunk toward the global share by SCORE.prop_prior phantom
+ * protocols — the same shrinkage the price model gives a thin comparable set. */
+export interface LaunchStats {
+  launched: number;
+  total: number;
+  share: number;
+  byCategory: Map<string, number>;
+}
+
+export function launchStats(snapshot: Snapshot): LaunchStats {
+  let launched = 0;
+  const counts = new Map<string, { n: number; l: number }>();
+  for (const p of snapshot.protocols) {
+    const live = !isPreToken(p);
+    if (live) launched++;
+    const key = p.category ?? 'Uncategorized';
+    const g = counts.get(key) ?? { n: 0, l: 0 };
+    g.n++;
+    if (live) g.l++;
+    counts.set(key, g);
+  }
+  const total = snapshot.protocols.length;
+  const share = total > 0 ? launched / total : 0;
+  const byCategory = new Map<string, number>();
+  for (const [key, g] of counts) {
+    byCategory.set(key, (g.l + SCORE.prop_prior * share) / (g.n + SCORE.prop_prior));
+  }
+  return { launched, total, share, byCategory };
+}
+
+/** One protocol's airdrop likelihood: five stated parts, each a published fraction of its weight. */
+export function airdropScore(
+  row: { category: string | null; tvl_usd: number; change_7d: number | null; age_days: number | null; chains: string[] },
+  propensity: number,
+): { score: number; parts: [number, number, number, number, number] } {
+  const tvlRamp = clamp(
+    (Math.log10(Math.max(row.tvl_usd, 1)) - Math.log10(SCORE.tvl_floor_usd)) /
+      (Math.log10(SCORE.tvl_full_usd) - Math.log10(SCORE.tvl_floor_usd)),
+    0,
+    1,
+  );
+  const age = row.age_days ?? SCORE.unknown_age_days;
+  const parts: [number, number, number, number, number] = [
+    round1(SCORE.prop_weight * propensity),
+    round1(SCORE.tvl_weight * tvlRamp),
+    round1(SCORE.age_weight * (1 - Math.exp(-Math.max(age, 0) / SCORE.age_tau_days))),
+    round1(SCORE.momentum_weight * clamp(((row.change_7d ?? 0) - SCORE.momentum_floor_pct) / SCORE.momentum_span_pct, 0, 1)),
+    round1((SCORE.breadth_weight * Math.min(row.chains.length, SCORE.breadth_full_chains)) / SCORE.breadth_full_chains),
+  ];
+  const score = clamp(Math.round(parts[0] + parts[1] + parts[2] + parts[3] + parts[4]), 0, 100);
+  return { score, parts };
+}
+
+/** The snapshot-window estimate, from age alone: a young protocol's user snapshot is probably
+ * still to come; an old, established one's was probably taken long ago. No date on record
+ * cannot be aged, so it sits in the uncertain middle. */
+export function windowState(age: number | null): 0 | 1 | 2 {
+  if (age === null) return 1;
+  if (age < SCORE.window_open_days) return 0;
+  if (age < SCORE.window_risk_days) return 1;
+  return 2;
+}
+
+/** Words in a plan's core step that commit a position rather than work a balance. */
+const LOCK_WORDS = /supply|deposit|stake|mint|margin|collateral|liquidity pool/i;
+/** Families whose product is a locked position when the money is large enough. */
+const CAPITAL_FAMILIES: ReadonlySet<Family> = new Set(['credit', 'staking', 'curator', 'yield', 'stable', 'rwa', 'privacy', 'derivatives']);
+
+/** The entry cost class, read off the protocol's own farm plan: the account-flavoured payments
+ * family joins with a signup and locks nothing, so it is Free; a core step that locks a position
+ * of $150 or more is Capital; everything else works a smaller balance and is Low $. */
+export function costClass(row: { category: string | null; tvl_usd: number; farm_steps: string[] }): 0 | 1 | 2 {
+  const family = familyOfCategory(row.category);
+  if (family === 'payments') return 0;
+  const capital = capitalForTvl(row.tvl_usd);
+  if (LOCK_WORDS.test(row.farm_steps[1] ?? '')) return capital >= 150 ? 2 : 1;
+  if (CAPITAL_FAMILIES.has(family) && capital >= 250) return 2;
+  return 1;
+}
+
+/** The difficulty tier: one point for a full-length plan, the cost class itself (Free 0, Low $ 1,
+ * Capital 2), one point for a protocol spread over five or more chains. 0–2 Easy, 3 Medium, 4 Hard. */
+export function difficultyTier(stepCount: number, cost: 0 | 1 | 2, chainCount: number): 0 | 1 | 2 {
+  const points = (stepCount >= 6 ? 1 : 0) + cost + (chainCount >= 5 ? 1 : 0);
+  return points <= 2 ? 0 : points === 3 ? 1 : 2;
+}
+
 // ---------------------------------------------------------------- the board
 
 /** The snapshot's protocol by slug. */
@@ -614,6 +788,12 @@ export function radarRow(row: BoardRow): RadarRow {
     // Field positions are a property of the whole board, not of one row: buildRadar fills them.
     tvl_pct: 0,
     value_pct: 0,
+    // The scoring layer's figures are likewise a property of the whole snapshot: buildRadar fills them.
+    air: 0,
+    ap: [0, 0, 0, 0, 0],
+    win: 1,
+    cost: 1,
+    diff: 1,
     cat_median_mult: null,
     comp_ratio: row.model.comp_ratio,
     comp_count: row.model.comp_count,
@@ -656,11 +836,18 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
       return { category, count: g.count, tvl_usd: g.tvl, median_multiple: rounded };
     })
     .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.category < b.category ? -1 : 1));
+  const launch = launchStats(snapshot);
   rows.forEach((r, i) => {
     const b = board[i]!;
     r.tvl_pct = pctBelow(tvlsAsc, b.tvl_usd);
     r.value_pct = pctBelow(valuesAsc, b.implied_value_usd);
     r.cat_median_mult = catMedian.get(b.category ?? 'Uncategorized') ?? null;
+    const s = airdropScore(b, launch.byCategory.get(b.category ?? 'Uncategorized') ?? launch.share);
+    r.air = s.score;
+    r.ap = s.parts;
+    r.win = windowState(b.age_days);
+    r.cost = costClass(b);
+    r.diff = difficultyTier(b.farm_steps.length, r.cost, b.chains.length);
   });
   const changes = board.map((r) => r.change_7d).filter((c): c is number => c !== null);
   const medChange = medianOf(changes);
@@ -691,6 +878,10 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     floor_usd: snapshot.floor_usd,
     model,
     model_version: MODEL_VERSION,
+    score: SCORE,
+    launched_count: launch.launched,
+    snapshot_count: launch.total,
+    launch_share: round4(launch.share),
     global_comp_ratio: round4(comps.globalRatio),
     global_comp_count: comps.globalCount,
     comp_stats: compStats,

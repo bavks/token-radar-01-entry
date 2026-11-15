@@ -1,8 +1,7 @@
-/* Sonar dashboard: a coloured masthead over a desktop workspace. The masthead carries a
-   deep-sea gradient — teal through blue into violet, with a radar glow in its corner — and
-   everything below it is a working surface: a filter rail beside a dense ranked table, a
-   two-column detail view, solid slate rules throughout. No webfonts, no images: type,
-   spacing and colour carry the design. */
+/* Sonar's successor SOONAIR: the masthead carries a deep-sea gradient — teal through blue into
+   violet, with a radar glow in its corner — and everything below it is a working surface: a
+   filter rail beside a dense ranked table, a two-column detail view, solid slate rules
+   throughout. No webfonts, no images: type, spacing and colour carry the design. */
 
 :root {
   --ink: #0a0f16;
@@ -132,6 +131,12 @@ td.rank { font-family: var(--num); color: var(--faint); width: 52px; }
 .psub { color: var(--faint); font-size: 12px; margin-top: 1px; }
 .badge { display: inline-block; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border-radius: 99px; margin-left: 9px; vertical-align: 2px; border: 1px solid var(--line); color: var(--faint); white-space: nowrap; }
 .badge.wl { border-color: var(--accent-dim); color: var(--accent); }
+/* the scoring layer's badges under a protocol's name: window, entry cost, difficulty */
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.tags .badge { margin-left: 0; }
+.badge.good { border-color: var(--accent-dim); color: var(--accent); }
+.badge.risk { border-color: #6e3a34; color: var(--down); }
+.pval.airbig { font-size: 19px; }
 td .big { font-family: var(--num); font-size: 15px; }
 td.num, th.num { text-align: right; font-family: var(--num); font-variant-numeric: tabular-nums; }
 td.delta { font-family: var(--num); font-variant-numeric: tabular-nums; text-align: right; }
