@@ -1,14 +1,14 @@
 /* Sonar dashboard: a quiet page under one coloured head. The masthead carries a deep-sea
    gradient — teal through blue into violet, with a radar glow in its corner — and everything
-   below it stays calm: one ink background, one muted-teal accent, hairline rules and generous
-   whitespace. No webfonts, no images: type, spacing and colour carry the whole design. */
+   below it stays calm: one ink background, one muted-teal accent, clearly drawn slate rules
+   and generous whitespace. No webfonts, no images: type, spacing and colour carry the design. */
 
 :root {
   --ink: #0a0f16;
   --panel: #10161f;
   --deep: #0c1219;
-  --line: #1f2937;
-  --line-soft: #17202c;
+  --line: #46617e;
+  --line-soft: #2e4359;
   --text: #e7edf4;
   --muted: #95a5b7;
   --faint: #68798d;
