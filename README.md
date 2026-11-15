@@ -13,7 +13,16 @@ framework, no network — laid out as a desktop workspace: a filter rail (search
 watchlist-only) beside a dense six-column board (rank, protocol, TVL, 7-day change, implied value
 and implied multiple), a two-column detail view per protocol with the model's workings as factor
 bars beside the farm-plan timeline, a live-token view with a summary strip, and a model view that
-states the method beside its comparable set.
+states the method beside its comparable set. Every graphic on the page is drawn from the board's
+own figures, which `lib/model.ts` aggregates into `data.js` beside the rows: a market-pulse strip
+over the board (the ranked set's total TVL, its median 7-day change, gainers against losers as a
+proportion bar, and the newest listing by first-tracked date), a slim TVL bar and a signed
+centre-zero change bar inside each row, a newest-listings rail under the board, a category
+landscape of aggregate TVL on the model view, and — at the head of each detail view — the
+protocol's position in the field: TVL and implied-value percentile bars against all 198 ranked
+rows, and its implied multiple set against its own category's median. The snapshot carries no
+social, user or funding data, so the page shows none: freshness here means listing dates, and
+momentum means TVL change — the signals the record actually holds.
 
 ## The model (sonar-1)
 

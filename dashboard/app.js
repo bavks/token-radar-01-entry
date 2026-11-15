@@ -9,6 +9,8 @@
   var DATA = window.RADAR;
   if (!DATA) return;
   var app = document.getElementById('app');
+  var maxTvl = 0;
+  DATA.rows.forEach(function (r) { if (r.tvl_usd > maxTvl) maxTvl = r.tvl_usd; });
   var state = { view: 'board', q: '', category: 'all', chain: 'all', watch: false, sort: 'rank', dir: 1, selected: null };
 
   var usd0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
@@ -177,6 +179,68 @@
       el('button', { class: 'btn block', type: 'button', text: 'Clear all filters', onclick: clearFilters }));
   }
 
+  // ---- the market pulse: the ranked set's vital signs, every figure an aggregate of the board
+  function pulseStrip() {
+    var p = DATA.pulse;
+    if (!p) return null;
+    var tot = p.gainers + p.losers;
+    var upPct = tot > 0 ? (p.gainers / tot * 100) : 50;
+    var medCls = p.median_change_7d > 0 ? 'up-t' : (p.median_change_7d < 0 ? 'down-t' : '');
+    var fresh = DATA.newest && DATA.newest[0];
+    return el('div', { class: 'pulse' },
+      el('div', { class: 'pcell' },
+        el('div', { class: 'k', text: 'TVL on the board' }),
+        el('div', { class: 'v', text: fmtUsd(p.total_tvl_usd) }),
+        el('div', { class: 's', text: 'across ' + DATA.board_size + ' pre-token protocols' })),
+      el('div', { class: 'pcell' },
+        el('div', { class: 'k', text: 'Median 7d change' }),
+        el('div', { class: 'v ' + medCls, text: fmtPct(p.median_change_7d) }),
+        el('div', { class: 's', text: p.reported + ' of ' + DATA.board_size + ' report a change' })),
+      el('div', { class: 'pcell' },
+        el('div', { class: 'k', text: 'Gainers vs losers, 7d' }),
+        el('div', { class: 'prop', 'aria-hidden': 'true' },
+          el('div', { class: 'pup', style: 'width:' + upPct.toFixed(1) + '%' }),
+          el('div', { class: 'pdown' })),
+        el('div', { class: 's' },
+          el('span', { class: 'up-t', text: p.gainers + ' gaining' }), ' · ',
+          el('span', { class: 'down-t', text: p.losers + ' falling' }))),
+      fresh ? el('button', { class: 'pcell asbtn', type: 'button', onclick: function () { openDetail(fresh.slug); } },
+        el('div', { class: 'k', text: 'Newest listing' }),
+        el('div', { class: 'v name', text: fresh.name }),
+        el('div', { class: 's', text: 'first tracked ' + fresh.listed_at + ' · ' + (fresh.category || 'Uncategorized') })) : null);
+  }
+
+  // ---- newest on the radar: the most recently tracked protocols on the board, freshest first
+  function newestPanel() {
+    if (!DATA.newest || !DATA.newest.length) return null;
+    return el('section', { class: 'panel newest-panel' },
+      el('div', { class: 'np-head' },
+        el('h3', { text: 'Newest on the radar' }),
+        el('span', { class: 'mut', text: 'the freshest listings DefiLlama’s record carries — a young protocol has had less time to be found' })),
+      el('div', { class: 'newgrid' }, DATA.newest.map(function (n) {
+        return el('button', { class: 'newcard', type: 'button', onclick: function () { openDetail(n.slug); } },
+          el('div', { class: 'nc-top' },
+            el('span', { class: 'pname', text: n.name }),
+            n.watchlist ? el('span', { class: 'badge wl', text: 'Watchlist' }) : el('span', { class: 'badge', text: 'Early find' })),
+          el('div', { class: 'nc-date', text: 'First tracked ' + n.listed_at }),
+          el('div', { class: 'nc-figs' },
+            el('span', null, el('span', { class: 'nc-k', text: 'TVL ' }), fmtUsd(n.tvl_usd)),
+            el('span', null, el('span', { class: 'nc-k', text: 'Implied ' }), fmtUsd(n.implied_value_usd))),
+          el('div', { class: 'psub', text: n.category || 'Uncategorized' }));
+      })));
+  }
+
+  // ---- a 7d change as a signed bar: teal runs right of centre for a gain, muted red left for a
+  // loss; the half-track saturates at ±25 points, so one freak week cannot flatten the rest
+  function changeBar(change) {
+    if (change === null || change === undefined) return null;
+    var w = Math.min(50, Math.abs(change) / 25 * 50);
+    var fill = change >= 0
+      ? el('div', { class: 'cfill up', style: 'left:50%;width:' + w.toFixed(1) + '%' })
+      : el('div', { class: 'cfill down', style: 'left:' + (50 - w).toFixed(1) + '%;width:' + w.toFixed(1) + '%' });
+    return el('div', { class: 'cbar', 'aria-hidden': 'true' }, fill);
+  }
+
   // ---- the board: a dense ranked table — rank, protocol, TVL, 7d change, implied value, multiple
   function sortHead(key, label, numeric) {
     var active = state.sort === key;
@@ -212,8 +276,13 @@
               el('span', { class: 'pname', text: r.name }),
               r.watchlist ? el('span', { class: 'badge wl', text: 'Watchlist' }) : el('span', { class: 'badge', text: 'Early find' })),
             el('div', { class: 'psub', text: sub })),
-          el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }),
-          el('td', { class: dcls, text: fmtPct(r.change_7d) }),
+          el('td', { class: 'num' },
+            el('div', { text: fmtUsd(r.tvl_usd) }),
+            el('div', { class: 'tbar', 'aria-hidden': 'true' },
+              el('div', { class: 'tfill', style: 'width:' + (maxTvl > 0 ? (r.tvl_usd / maxTvl * 100) : 0).toFixed(1) + '%' }))),
+          el('td', { class: dcls },
+            el('div', { text: fmtPct(r.change_7d) }),
+            changeBar(r.change_7d)),
           el('td', { class: 'num' }, el('span', { class: 'big', text: fmtUsd(r.implied_value_usd) })),
           el('td', { class: 'num', text: mult(r) === null ? 'n/a' : fmtRatio(mult(r)) })
         ));
@@ -229,7 +298,10 @@
     var head = el('p', { class: 'count-line' },
       el('b', { text: list.length + ' protocols' }), ' shown · ' + covered + ' of ' + DATA.watchlist_size + ' on the watchlist · select a row for its workings and farm plan');
     var mainWrap = el('div', null, head, main);
-    return el('div', { class: 'shell' }, rail(list.length), mainWrap);
+    return el('div', null,
+      pulseStrip(),
+      el('div', { class: 'shell' }, rail(list.length), mainWrap),
+      newestPanel());
   }
 
   // ---- detail: the workings and the record on the left, the farm plan riding on the right
@@ -241,6 +313,42 @@
     var cost = ti >= 0 ? rest.slice(0, ti) : rest;
     var time = ti >= 0 ? rest.slice(ti + 2) : '';
     return { act: s.slice(0, ci) + '.', meta: cost + (time ? ' · ' + time : '') };
+  }
+
+  // ---- where a protocol stands: its size against the whole field, its multiple against its kind
+  function standCard(row) {
+    function pbar(label, pct, note) {
+      return el('div', { class: 'prow' },
+        el('div', { class: 'phead' },
+          el('span', { text: label }),
+          el('span', { class: 'pval', text: 'larger than ' + pct + '%' })),
+        el('div', { class: 'ptrack', 'aria-hidden': 'true' },
+          el('div', { class: 'pfill', style: 'width:' + pct + '%' })),
+        el('div', { class: 'pnote', text: note }));
+    }
+    var parts = [
+      pbar('TVL vs the field', row.tvl_pct, fmtUsd(row.tvl_usd) + ' against ' + DATA.board_size + ' ranked protocols'),
+      pbar('Implied value vs the field', row.value_pct, fmtUsd(row.implied_value_usd) + ' — the board’s ranking made visible'),
+    ];
+    var own = mult(row);
+    var med = row.cat_median_mult;
+    if (own !== null && med !== null && med > 0) {
+      var cat = (DATA.categories || []).filter(function (c) { return c.category === (row.category || 'Uncategorized'); })[0];
+      var top = Math.max(own, med) * 1.15;
+      function mbar(label, v, cls) {
+        return el('div', { class: 'mrow' },
+          el('div', { class: 'phead' },
+            el('span', { text: label }),
+            el('span', { class: 'pval', text: fmtRatio(v) })),
+          el('div', { class: 'ptrack slim', 'aria-hidden': 'true' },
+            el('div', { class: 'pfill ' + (cls || ''), style: 'width:' + Math.min(100, v / top * 100).toFixed(1) + '%' })));
+      }
+      parts.push(el('div', { class: 'prow last' },
+        el('div', { class: 'psub2', text: 'Implied multiple against its own kind' }),
+        mbar('This protocol', own, ''),
+        mbar((row.category || 'Uncategorized') + ' median' + (cat ? ' · ' + cat.count + ' ranked' : ''), med, 'dim')));
+    }
+    return el('section', { class: 'card' }, el('h3', { text: 'Where it stands' }), parts);
   }
 
   function openDetail(slug) {
@@ -295,6 +403,7 @@
         statTile('Implied value', fmtUsd(row.implied_value_usd), mult(row) === null ? '' : fmtRatio(mult(row)) + ' of TVL')),
       el('div', { class: 'detail-grid' },
         el('div', { class: 'col' },
+          standCard(row),
           el('section', { class: 'card' },
             el('h3', { text: 'How the model prices it' }),
             frow('TVL', null, 'the snapshot’s figure', fmtUsd(row.tvl_usd), 'base', false),
@@ -352,6 +461,33 @@
         tbody)));
   }
 
+  // ---- the category landscape: where the ranked set's TVL actually sits, kind by kind
+  function landscapeCard() {
+    var cats = DATA.categories || [];
+    if (!cats.length) return null;
+    var top = cats.slice(0, 12);
+    var rest = cats.slice(12);
+    var max = cats[0].tvl_usd;
+    function crow(name, count, tvl) {
+      return el('div', { class: 'catrow' },
+        el('div', { class: 'cathead' },
+          el('span', { text: name }),
+          el('span', { class: 'catfig', text: fmtUsd(tvl) + ' · ' + count + ' ranked' })),
+        el('div', { class: 'cattrack', 'aria-hidden': 'true' },
+          el('div', { class: 'catfill', style: 'width:' + (max > 0 ? (tvl / max * 100) : 0).toFixed(1) + '%' })));
+    }
+    var body = top.map(function (c) { return crow(c.category, c.count, c.tvl_usd); });
+    if (rest.length) {
+      var rt = 0, rc = 0;
+      rest.forEach(function (c) { rt += c.tvl_usd; rc += c.count; });
+      body.push(crow('All other categories', rc, rt));
+    }
+    return el('section', { class: 'card' },
+      el('h3', { text: 'The category landscape' }),
+      el('p', { class: 'mut', text: 'Aggregate TVL of the ' + DATA.board_size + ' ranked pre-token protocols, by category. The radar’s weight sits where the bars are long: a launch there is priced against deep comparables, a launch in a short bar against few.' }),
+      body);
+  }
+
   // ---- the model, stated: factor explanations on the left, the comparable set on the right
   function modelView() {
     var m = DATA.model;
@@ -376,7 +512,8 @@
             el('h3', { text: 'Who is ranked, who is not' }),
             el('p', null, 'The watchlist is the floor: all ' + DATA.watchlist_size + ' of its protocols are ranked, always. Around it the radar applies the watchlist’s own product test at every size. A protocol is ranked when it records no token and is not a wrapped, staked or bridged product of one that trades, not an exchange and not a versioned pool of another protocol.'),
             el('p', null, 'Protocols whose token already trades are set aside and shown at market value in the Live view. No protocol name is special-cased anywhere in the model: one function scores every row, and the workings of every row are on its detail page.'),
-            el('p', null, 'An implied value is this model’s claim about a launch that has not happened, made from the snapshot alone. It is not a prediction that a token will exist.'))),
+            el('p', null, 'An implied value is this model’s claim about a launch that has not happened, made from the snapshot alone. It is not a prediction that a token will exist.')),
+          landscapeCard()),
         el('div', { class: 'side' },
           el('section', { class: 'card' },
             el('h3', { text: 'The comparable set' }),

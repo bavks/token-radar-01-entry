@@ -149,6 +149,11 @@ export interface RadarRow {
   age_days: number | null;
   watchlist: boolean;
   implied_value_usd: number;
+  /** This row's place in the field: the share of ranked rows below it, 0..100. Filled by buildRadar. */
+  tvl_pct: number;
+  value_pct: number;
+  /** The median implied multiple of this row's category across the board; null when it cannot be formed. */
+  cat_median_mult: number | null;
   comp_ratio: number;
   comp_count: number;
   growth_multiplier: number;
@@ -176,6 +181,34 @@ export interface CompStat {
   ratio: number;
 }
 
+/** The board's vital signs, from the ranked rows alone: size, momentum and freshness. */
+export interface PulseData {
+  total_tvl_usd: number;
+  median_change_7d: number | null;
+  reported: number;
+  gainers: number;
+  losers: number;
+}
+
+/** One of the board's most recently tracked protocols: the freshest listings the snapshot records. */
+export interface NewListing {
+  slug: string;
+  name: string;
+  listed_at: string;
+  category: string | null;
+  tvl_usd: number;
+  implied_value_usd: number;
+  watchlist: boolean;
+}
+
+/** One category's weight across the ranked set: headcount, aggregate TVL, median implied multiple. */
+export interface CategoryStat {
+  category: string;
+  count: number;
+  tvl_usd: number;
+  median_multiple: number | null;
+}
+
 /** Everything the dashboard needs: the board, the live set, and the model it runs. */
 export interface RadarData {
   as_of: string;
@@ -191,6 +224,9 @@ export interface RadarData {
   early_size: number;
   live_size: number;
   live_total: number;
+  pulse: PulseData;
+  newest: NewListing[];
+  categories: CategoryStat[];
   rows: RadarRow[];
   live: LiveRow[];
 }
@@ -206,6 +242,26 @@ export class SnapshotError extends Error {
 const DAY_MS = 86_400_000;
 const round4 = (n: number): number => Math.round(n * 1e4) / 1e4;
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
+
+/** The median of a set of figures, or null when the set is empty. */
+function medianOf(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const s = values.slice().sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+}
+
+/** Where a figure stands in its field: the share of the field strictly below it, 0..100. */
+function pctBelow(sortedAsc: number[], v: number): number {
+  let lo = 0;
+  let hi = sortedAsc.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sortedAsc[mid]! < v) lo = mid + 1;
+    else hi = mid;
+  }
+  return sortedAsc.length <= 1 ? 100 : Math.round((lo / (sortedAsc.length - 1)) * 100);
+}
 
 /** A whole day count from `listedAt` to `asOf`, clamped at zero; null when either date is absent or bad. */
 export function ageDays(asOf: string, listedAt: string | null): number | null {
@@ -555,6 +611,10 @@ export function radarRow(row: BoardRow): RadarRow {
     age_days: row.age_days,
     watchlist: row.watchlist,
     implied_value_usd: row.implied_value_usd,
+    // Field positions are a property of the whole board, not of one row: buildRadar fills them.
+    tvl_pct: 0,
+    value_pct: 0,
+    cat_median_mult: null,
     comp_ratio: row.model.comp_ratio,
     comp_count: row.model.comp_count,
     growth_multiplier: row.model.growth_multiplier,
@@ -573,6 +633,58 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   const compStats: CompStat[] = [...comps.byCategory.entries()]
     .map(([category, v]) => ({ category, comps: v.count, ratio: round4(v.ratio) }))
     .sort((a, b) => b.comps - a.comps || (a.category < b.category ? -1 : 1));
+  // The graphics' data, all of it aggregates of the board's own figures: nothing here feeds
+  // back into the board, so board.json keeps the bytes it has always had.
+  const rows = board.map(radarRow);
+  const tvlsAsc = board.map((r) => r.tvl_usd).sort((a, b) => a - b);
+  const valuesAsc = board.map((r) => r.implied_value_usd).sort((a, b) => a - b);
+  const catGroups = new Map<string, { count: number; tvl: number; mults: number[] }>();
+  for (const r of board) {
+    const key = r.category ?? 'Uncategorized';
+    const g = catGroups.get(key) ?? { count: 0, tvl: 0, mults: [] };
+    g.count += 1;
+    g.tvl += r.tvl_usd;
+    if (r.tvl_usd > 0) g.mults.push(r.implied_value_usd / r.tvl_usd);
+    catGroups.set(key, g);
+  }
+  const catMedian = new Map<string, number | null>();
+  const categories: CategoryStat[] = [...catGroups.entries()]
+    .map(([category, g]) => {
+      const med = medianOf(g.mults);
+      const rounded = med === null ? null : round4(med);
+      catMedian.set(category, rounded);
+      return { category, count: g.count, tvl_usd: g.tvl, median_multiple: rounded };
+    })
+    .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.category < b.category ? -1 : 1));
+  rows.forEach((r, i) => {
+    const b = board[i]!;
+    r.tvl_pct = pctBelow(tvlsAsc, b.tvl_usd);
+    r.value_pct = pctBelow(valuesAsc, b.implied_value_usd);
+    r.cat_median_mult = catMedian.get(b.category ?? 'Uncategorized') ?? null;
+  });
+  const changes = board.map((r) => r.change_7d).filter((c): c is number => c !== null);
+  const medChange = medianOf(changes);
+  const pulse: PulseData = {
+    total_tvl_usd: board.reduce((s, r) => s + r.tvl_usd, 0),
+    median_change_7d: medChange === null ? null : round4(medChange),
+    reported: changes.length,
+    gainers: changes.filter((c) => c > 0).length,
+    losers: changes.filter((c) => c < 0).length,
+  };
+  const newest: NewListing[] = board
+    .filter((r) => r.listed_at !== null)
+    .sort((a, b) =>
+      a.listed_at! < b.listed_at! ? 1 : a.listed_at! > b.listed_at! ? -1 : b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : 1))
+    .slice(0, 8)
+    .map((r) => ({
+      slug: r.slug,
+      name: r.name,
+      listed_at: r.listed_at!,
+      category: r.category,
+      tvl_usd: r.tvl_usd,
+      implied_value_usd: r.implied_value_usd,
+      watchlist: r.watchlist,
+    }));
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -587,7 +699,10 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     early_size: board.filter((r) => !r.watchlist).length,
     live_size: live.length,
     live_total: liveTotal,
-    rows: board.map(radarRow),
+    pulse,
+    newest,
+    categories,
+    rows,
     live,
   };
   return { board, radar };
