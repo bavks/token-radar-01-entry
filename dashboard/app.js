@@ -1,8 +1,5 @@
-// SOONAIR dashboard. Reads window.RADAR (written beside this folder by main.ts from the same board
-// board.json carries) and renders three views: the ranked radar, the live-token set aside, and the
-// model itself. Every figure on the page comes from that one object; the page fetches nothing.
-// The presentation: a coloured masthead over a desktop workspace — a filter rail beside a dense
-// ranked table, a two-column detail view, and the model's workings beside its comparable set.
+// SOONAIR dashboard. Renders window.RADAR (written by main.ts from the same board board.json
+// carries) as three views — radar, live tokens, the model — and fetches nothing.
 (function () {
   'use strict';
 
@@ -11,15 +8,15 @@
   var app = document.getElementById('app');
   var maxTvl = 0;
   DATA.rows.forEach(function (r) { if (r.tvl_usd > maxTvl) maxTvl = r.tvl_usd; });
-  // the masthead's stat cluster: aggregates of the board itself, computed once
+  // masthead stat cluster: aggregates of the board, computed once
   var openCount = 0;
   var airSorted = DATA.rows.map(function (r) { return r.air; }).sort(function (a, b) { return a - b; });
   DATA.rows.forEach(function (r) { if (r.win === 0) openCount++; });
   var medAir = airSorted.length ? airSorted[Math.floor(airSorted.length / 2)] : 0;
-  // display currency: the rates are baked into data.js (DATA.fx) so the page stays offline, and
-  // conversion is display only — ranking, sorting and every model figure stay in USD, as the
-  // note beside the selector in the masthead says. Percentages, multiples and scores never pass
-  // through this formatter, so they never convert.
+  // the Hot pill's cut: the airdrop estimate at the board's 90th percentile — the top decile
+  var hotCut = airSorted.length ? airSorted[Math.floor(airSorted.length * 0.9)] : Infinity;
+  // display currency: rates are baked into data.js, so conversion is display only — ranking
+  // and every model figure stay in USD. Percentages and scores never pass through fmtMoney.
   var CCYS = ['USD', 'EUR', 'GBP', 'JPY', 'CNY', 'IDR', 'KRW'];
   var NO_CENTS = { JPY: 1, IDR: 1, KRW: 1 };
   var FXD = DATA.fx || { as_of: '', source: '', rates: {} };
@@ -27,8 +24,8 @@
     try { var c = window.localStorage.getItem('soonair-ccy'); return CCYS.indexOf(c) >= 0 ? c : 'USD'; }
     catch (e) { return 'USD'; }
   }
-  function saveCcy() { try { window.localStorage.setItem('soonair-ccy', state.ccy); } catch (e) { /* a blocked store just means the choice lasts the visit */ } }
-  var state = { view: 'board', q: '', category: 'all', chain: 'all', watch: false, sort: 'rank', dir: 1, selected: null, ccy: loadCcy() };
+  function saveCcy() { try { window.localStorage.setItem('soonair-ccy', state.ccy); } catch (e) { /* blocked store: lasts the visit */ } }
+  var state = { view: 'board', q: '', category: 'all', chain: 'all', watch: false, quick: 'all', sort: 'rank', dir: 1, selected: null, ccy: loadCcy() };
 
   var fmtCache = {};
   function fmtMoney(n) {
@@ -58,7 +55,7 @@
   function fmtRatio(n) { return 'x' + Number(n).toFixed(2); }
   function mult(r) { return r.tvl_usd > 0 ? r.implied_value_usd / r.tvl_usd : null; }
 
-  // the scoring layer's three calls, as words: full names for panels, short ones for board badges
+  // the scoring layer's calls as words: full for panels, short for badges
   var WIN_L = ['Window likely open', 'Window uncertain', 'Snapshot risk: likely taken'];
   var WIN_S = ['Window open', 'Window uncertain', 'Snapshot risk'];
   var COST_L = ['Free', 'Low $', 'Capital'];
@@ -84,7 +81,7 @@
     return node;
   }
 
-  // ---- state in the hash, so a view can be linked, screenshotted and restored exactly
+  // ---- state in the hash, so a view can be linked and restored exactly
   function readHash() {
     var h = window.location.hash.replace(/^#/, '');
     if (!h) return;
@@ -93,6 +90,7 @@
     if (p.get('cat')) state.category = p.get('cat');
     if (p.get('chain')) state.chain = p.get('chain');
     if (p.get('w')) state.watch = p.get('w') === '1';
+    if (p.get('qf')) state.quick = p.get('qf');
     if (p.get('view')) state.view = p.get('view');
     if (p.get('p')) { state.selected = p.get('p'); state.view = 'board'; }
   }
@@ -103,6 +101,7 @@
     if (state.category !== 'all') p.set('cat', state.category);
     if (state.chain !== 'all') p.set('chain', state.chain);
     if (state.watch) p.set('w', '1');
+    if (state.quick !== 'all') p.set('qf', state.quick);
     if (state.selected) p.set('p', state.selected);
     var s = p.toString();
     window.history.replaceState(null, '', s ? '#' + s : window.location.pathname + window.location.search);
@@ -112,6 +111,11 @@
   function visibleRows() {
     var q = state.q.trim().toLowerCase();
     return DATA.rows.filter(function (r) {
+      if (state.quick === 'hot' && r.air < hotCut) return false;
+      if (state.quick === 'open' && r.win) return false;
+      if (state.quick === 'free' && r.cost) return false;
+      if (state.quick === 'easy' && r.diff) return false;
+      if (state.quick === 'watch' && !r.watchlist) return false;
       if (state.watch && !r.watchlist) return false;
       if (state.category !== 'all' && (r.category || 'Uncategorized') !== state.category) return false;
       if (state.chain !== 'all' && (r.chains || []).indexOf(state.chain) < 0) return false;
@@ -126,7 +130,7 @@
       if (key === 'name') { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
       else if (key === 'tvl') { av = a.tvl_usd; bv = b.tvl_usd; }
       else if (key === 'implied') { av = a.implied_value_usd; bv = b.implied_value_usd; }
-      else if (key === 'change') { av = a.change_7d === null || a.change_7d === undefined ? -Infinity : a.change_7d; bv = b.change_7d === null || b.change_7d === undefined ? -Infinity : b.change_7d; }
+      else if (key === 'change') { av = a.change_7d == null ? -Infinity : a.change_7d; bv = b.change_7d == null ? -Infinity : b.change_7d; }
       else if (key === 'air') { av = a.air; bv = b.air; }
       else { av = a.rank; bv = b.rank; }
       if (av < bv) return -dir;
@@ -135,26 +139,58 @@
     });
   }
   function clearFilters() {
-    state.q = ''; state.category = 'all'; state.chain = 'all'; state.watch = false;
+    state.q = ''; state.category = 'all'; state.chain = 'all'; state.watch = false; state.quick = 'all';
     writeHash(); render();
   }
 
-  // ---- chrome: a coloured masthead band — wordmark, a radar motif, the board's own vital
-  // signs, the currency control and the three view tabs
+  // ---- the ticker: an airdrops.io-style ribbon of the board's freshest items — NEW for the
+  // newest listings, HOT for the top airdrop estimate and the biggest 7d gainer, WINDOW OPEN
+  // for the largest open-window protocols. The set prints twice; the track scrolls by half.
+  function ticker() {
+    var items = [];
+    function add(p, c, r, s) { items.push({ p: p, c: c, slug: r.slug, t: r.name, s: s }); }
+    (DATA.newest || []).slice(0, 4).forEach(function (n) { add('NEW', '#34d399', n); });
+    var byAir = DATA.rows.slice().sort(function (a, b) { return b.air - a.air; });
+    if (byAir[0]) add('HOT', '#fb923c', byAir[0], 'airdrop est. ' + byAir[0].air + '%');
+    var gain = DATA.rows.filter(function (r) { return r.change_7d != null; }).sort(function (a, b) { return b.change_7d - a.change_7d; });
+    if (gain[0]) add('HOT', '#fb923c', gain[0], fmtPct(gain[0].change_7d) + ' in 7d');
+    DATA.rows.filter(function (r) { return !r.win; }).sort(function (a, b) { return b.tvl_usd - a.tvl_usd; }).slice(0, 3)
+      .forEach(function (r) { add('WINDOW OPEN', '#fbbf24', r); });
+    function item(it, dup) {
+      return el('button', { class: 'tk', type: 'button', tabindex: dup ? '-1' : null, onclick: function () { openDetail(it.slug); } },
+        el('span', { class: 'tpill', style: 'background:' + it.c, text: it.p }),
+        el('span', { class: 'tname', text: it.t }),
+        it.s ? el('span', { class: 'tsub', text: it.s }) : null);
+    }
+    function set(dup) {
+      return el('div', { class: 'tset', 'aria-hidden': dup ? 'true' : null },
+        items.map(function (it) { return item(it, dup); }));
+    }
+    return el('div', { class: 'ticker' }, el('div', { class: 'ttrack' }, set(false), set(true)));
+  }
+
+  // ---- quick-filter pills above the board, airdrops.io style: the active one filled. They
+  // compose with the rail filters; All clears the quick filter. Hot is the top decile (hotCut).
+  var QUICKS = [['all', 'All'], ['hot', 'Hot · top 10%'], ['open', 'Window open'], ['free', 'Free entry'], ['easy', 'Easy'], ['watch', 'Watchlist']];
+  function pillRow() {
+    return el('div', { class: 'pills', role: 'group', 'aria-label': 'Quick filters' }, QUICKS.map(function (q) {
+      var on = state.quick === q[0];
+      return el('button', { type: 'button', class: 'pill' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false',
+        onclick: function () { state.quick = q[0]; writeHash(); render(); } }, q[1]);
+    }));
+  }
+
+  // ---- chrome: the masthead band — wordmark, vital signs, currency, view tabs
   function hstat(k, v) {
     return el('div', { class: 'hstat' },
       el('div', { class: 'hk', text: k }),
       el('div', { class: 'hv', text: v }));
   }
   function topbar() {
-    // decoration only: radar rings, a dotted route arc and a paper plane, drawn in the gradient
-    var motif = el('div', { class: 'motif', 'aria-hidden': 'true' });
-    motif.innerHTML = '<svg width="360" height="118" viewBox="0 0 360 118" fill="none"><circle cx="282" cy="30" r="15" stroke="rgba(125,211,252,.5)"/><circle cx="282" cy="30" r="33" stroke="rgba(125,211,252,.30)"/><circle cx="282" cy="30" r="53" stroke="rgba(94,234,212,.18)"/><circle cx="282" cy="30" r="3.5" fill="#5eead4"/><path d="M6 102 Q170 6 316 78" stroke="rgba(219,234,254,.45)" stroke-width="1.6" stroke-dasharray="1 7" stroke-linecap="round"/><path d="M40 84 L66 64 L54 94 L47 81 Z" fill="rgba(125,211,252,.8)"/><path d="M47 81 L66 64" stroke="rgba(6,40,59,.55)" stroke-width="1.2"/></svg>';
     return el('div', { class: 'topbar' },
-      motif,
       el('div', { class: 'brand' },
         el('h1', null, 'SOON', el('em', null, 'AIR')),
-        el('div', { class: 'tag', text: 'Soon-airdrop radar — protocols that record no token yet, scored for the launch that may be coming: what it could be worth, how likely a drop looks, and what to do before any user snapshot is taken.' })
+        el('div', { class: 'tag', text: 'Soon-airdrop radar — pre-token protocols scored for the launch that may be coming: what it could be worth, how likely a drop looks, and what to do before a snapshot is taken.' })
       ),
       el('div', { class: 'hstats' },
         hstat('Protocols ranked', String(DATA.board_size)),
@@ -164,8 +200,7 @@
     );
   }
 
-  // the masthead's control row: the display-currency selector with its honesty note, and the
-  // provenance chip that used to sit beside the wordmark
+  // the masthead's control row: the currency selector with its note, and the provenance chip
   function mastctl() {
     var sel = el('select', { 'aria-label': 'Display currency' });
     CCYS.forEach(function (c) {
@@ -198,7 +233,7 @@
       s ? el('div', { class: 's', text: s }) : null);
   }
 
-  // ---- the filter rail: search, two selects, the watchlist toggle and the running count
+  // ---- the filter rail: search, two selects, the watchlist toggle, the count
   function rail(shown) {
     var cats = Array.from(new Set(DATA.rows.map(function (r) { return r.category || 'Uncategorized'; }))).sort();
     var chainCount = {};
@@ -241,7 +276,7 @@
       el('button', { class: 'btn block', type: 'button', text: 'Clear all filters', onclick: clearFilters }));
   }
 
-  // ---- the market pulse: the ranked set's vital signs, every figure an aggregate of the board
+  // ---- the market pulse: the ranked set's vital signs, all aggregates of the board
   function pulseStrip() {
     var p = DATA.pulse;
     if (!p) return null;
@@ -272,13 +307,13 @@
         el('div', { class: 's', text: 'first tracked ' + fresh.listed_at + ' · ' + (fresh.category || 'Uncategorized') })) : null);
   }
 
-  // ---- newest on the radar: the most recently tracked protocols on the board, freshest first
+  // ---- newest on the radar: the most recently tracked protocols, freshest first
   function newestPanel() {
     if (!DATA.newest || !DATA.newest.length) return null;
     return el('section', { class: 'panel newest-panel' },
       el('div', { class: 'np-head' },
         el('h3', { text: 'Newest on the radar' }),
-        el('span', { class: 'mut', text: 'the freshest listings DefiLlama’s record carries — a young protocol has had less time to be found' })),
+        el('span', { class: 'mut', text: 'the freshest listings on record — a young protocol has had less time to be found' })),
       el('div', { class: 'newgrid' }, DATA.newest.map(function (n) {
         return el('button', { class: 'newcard', type: 'button', onclick: function () { openDetail(n.slug); } },
           el('div', { class: 'nc-top' },
@@ -292,8 +327,8 @@
       })));
   }
 
-  // ---- a 7d change as a signed bar: teal runs right of centre for a gain, muted red left for a
-  // loss; the half-track saturates at ±25 points, so one freak week cannot flatten the rest
+  // ---- a 7d change as a signed bar; the half-track saturates at ±25, so one freak week
+  // cannot flatten the rest
   function changeBar(change) {
     if (change === null || change === undefined) return null;
     var w = Math.min(50, Math.abs(change) / 25 * 50);
@@ -303,7 +338,7 @@
     return el('div', { class: 'cbar', 'aria-hidden': 'true' }, fill);
   }
 
-  // ---- the board: a dense ranked table — rank, protocol, TVL, 7d change, implied value, multiple
+  // ---- the board: a dense ranked table
   function sortHead(key, label, numeric) {
     var active = state.sort === key;
     return el('th', numeric ? { class: 'num', scope: 'col' } : { scope: 'col' },
@@ -365,15 +400,16 @@
           tbody));
     }
     var head = el('p', { class: 'count-line' },
-      el('b', { text: list.length + ' protocols' }), ' shown · ' + covered + ' of ' + DATA.watchlist_size + ' on the watchlist · select a row for its workings and farm plan · the Airdrop % and the window / cost / difficulty badges are model estimates — the method is on The model tab');
+      el('b', { text: list.length + ' protocols' }), ' shown · ' + covered + ' of ' + DATA.watchlist_size + ' watchlist · select a row for its workings and farm plan · Airdrop % and the window/cost/difficulty badges are model estimates — method on The model tab');
     var mainWrap = el('div', null, head, main);
     return el('div', null,
+      pillRow(),
       pulseStrip(),
       el('div', { class: 'shell' }, rail(list.length), mainWrap),
       newestPanel());
   }
 
-  // ---- detail: the workings and the record on the left, the farm plan riding on the right
+  // ---- detail: workings and record on the left, the farm plan on the right
   function splitStep(s) {
     var ci = s.indexOf('. Cost: ');
     if (ci < 0) return { act: s, meta: '' };
@@ -384,13 +420,13 @@
     return { act: s.slice(0, ci) + '.', meta: cost + (time ? ' · ' + time : '') };
   }
 
-  // ---- the airdrop outlook: the scoring layer's four calls for one protocol, parts shown in full
+  // ---- the airdrop outlook: the scoring layer's four calls for one protocol
   function outlookCard(row) {
     var sc = DATA.score;
     var names = ['Category launch share', 'TVL band', 'Track record', '7d momentum', 'Chain breadth'];
     var maxs = [sc.prop_weight, sc.tvl_weight, sc.age_weight, sc.momentum_weight, sc.breadth_weight];
     var notes = [
-      'the shrunk share of ' + (row.category || 'Uncategorized') + ' protocols in the snapshot that already record a token — shrinkage prior ' + sc.prop_prior,
+      'the shrunk share of ' + (row.category || 'Uncategorized') + ' protocols that already record a token — shrinkage prior ' + sc.prop_prior,
       fmtMoney(row.tvl_usd) + ' on a log ramp from ' + fmtMoney(sc.tvl_floor_usd) + ' (no points) to ' + fmtMoney(sc.tvl_full_usd) + ' (full points)',
       fmtAge(row.age_days) + ' with no token on record' + (row.age_days === null || row.age_days === undefined ? ' — no date on record, counted as ' + sc.unknown_age_days + ' days' : ''),
       'a 7-day TVL change of ' + fmtPct(row.change_7d) + ', mapped from ' + sc.momentum_floor_pct + '% across ' + sc.momentum_span_pct + ' points',
@@ -406,9 +442,9 @@
         el('div', { class: 'pnote', text: notes[i] }));
     }
     var winText = row.win === 0
-      ? 'First tracked ' + row.listed_at + ' — young enough that a user snapshot, if the protocol ever takes one, is probably still ahead of it.'
+      ? 'First tracked ' + row.listed_at + ' — young enough that a user snapshot, if one is ever taken, is probably still ahead.'
       : row.win === 2
-        ? 'First tracked ' + row.listed_at + ' — a protocol this established has probably already taken any user snapshot it means to take; late farming here is a bet, not a position.'
+        ? 'First tracked ' + row.listed_at + ' — this established, any user snapshot was probably already taken; late farming here is a bet, not a position.'
         : row.listed_at
           ? 'First tracked ' + row.listed_at + ' — old enough to have snapshotted, young enough that it may not have; the estimate cannot call it.'
           : 'No first-tracked date on record, so the protocol cannot be aged and the window reads uncertain.';
@@ -430,7 +466,7 @@
         el('span', { class: 'pval airbig', text: row.air + '%' })),
       el('div', { class: 'ptrack', 'aria-hidden': 'true' },
         el('div', { class: 'pfill', style: 'width:' + row.air + '%' })),
-      el('div', { class: 'pnote', text: 'An estimate from the snapshot’s record alone — not a promise that a token, let alone a drop, exists. Its five parts:' }),
+      el('div', { class: 'pnote', text: 'From the snapshot’s record alone — not a promise that a token, let alone a drop, exists. Its five parts:' }),
       [0, 1, 2, 3, 4].map(srow),
       el('div', { class: 'facts', style: 'margin-top:14px' }, facts.map(function (f) {
         return el('div', null, el('span', { text: f[0] }), el('b', { text: f[1] }));
@@ -439,7 +475,7 @@
       el('div', { class: 'note', text: costText + ' Difficulty ' + DIFF_L[row.diff].toLowerCase() + ': a ' + row.farm_steps.length + '-step plan at ' + COST_L[row.cost].toLowerCase() + ' cost across ' + (row.chains || []).length + ' chain(s). Every rule behind these calls is printed on The model tab.' }));
   }
 
-  // ---- where a protocol stands: its size against the whole field, its multiple against its kind
+  // ---- where a protocol stands: size against the field, multiple against its kind
   function standCard(row) {
     function pbar(label, pct, note) {
       return el('div', { class: 'prow' },
@@ -486,7 +522,7 @@
     var afterComp = row.tvl_usd * row.comp_ratio;
     var afterGrowth = afterComp * row.growth_multiplier;
     var afterMat = afterGrowth * row.maturity_multiplier;
-    // every factor bar on one scale, x0 to x2.5 (the comparable multiple's own clamp), tick at x1
+    // factor bars share one scale, x0 to x2.5, tick at x1
     function fbar(m) {
       var pct = Math.max(0, Math.min(100, m / 2.5 * 100));
       return el('div', { class: 'ftrack' },
@@ -578,7 +614,7 @@
         statTile('Their combined TVL', fmtMoney(tvlSum), 'of the ones shown'),
         statTile('Combined market cap', fmtMoney(mcapSum), 'a fact, not an estimate')),
       el('div', { class: 'panel' }, el('table', { class: 'compact' },
-        el('caption', { text: 'Already trading: the ' + DATA.live_total + ' protocols whose token exists are never ranked by the model — their market cap is a fact, not an estimate. The largest ' + DATA.live.length + ' are shown; their FDV/TVL ratios are the comparables the radar prices from.' }),
+        el('caption', { text: 'Already trading: the ' + DATA.live_total + ' protocols with a token are never ranked — market cap is a fact, not an estimate. The largest ' + DATA.live.length + ' are shown; their FDV/TVL ratios are the comparables the radar prices from.' }),
         el('thead', null, el('tr', null,
           el('th', { scope: 'col', text: 'Protocol' }), el('th', { class: 'num', scope: 'col', text: 'Symbol' }),
           el('th', { class: 'num', scope: 'col', text: 'TVL' }), el('th', { class: 'num', scope: 'col', text: '7d' }),
@@ -586,7 +622,7 @@
         tbody)));
   }
 
-  // ---- the category landscape: where the ranked set's TVL actually sits, kind by kind
+  // ---- the category landscape: where the ranked set's TVL sits, kind by kind
   function landscapeCard() {
     var cats = DATA.categories || [];
     if (!cats.length) return null;
@@ -609,11 +645,11 @@
     }
     return el('section', { class: 'card' },
       el('h3', { text: 'The category landscape' }),
-      el('p', { class: 'mut', text: 'Aggregate TVL of the ' + DATA.board_size + ' ranked pre-token protocols, by category. The radar’s weight sits where the bars are long: a launch there is priced against deep comparables, a launch in a short bar against few.' }),
+      el('p', { class: 'mut', text: 'Aggregate TVL of the ' + DATA.board_size + ' ranked protocols by category. Weight sits where the bars are long: a launch there is priced against deep comparables, in a short bar against few.' }),
       body);
   }
 
-  // ---- the model, stated: factor explanations on the left, the comparable set on the right
+  // ---- the model, stated: factors on the left, the comparable set on the right
   function modelView() {
     var m = DATA.model;
     var tbody = el('tbody');
@@ -643,7 +679,7 @@
           el('section', { class: 'card' },
             el('h3', { text: 'Who is ranked, who is not' }),
             el('p', null, 'The watchlist is the floor: all ' + DATA.watchlist_size + ' of its protocols are ranked, always. Around it the radar applies the watchlist’s own product test at every size. A protocol is ranked when it records no token and is not a wrapped, staked or bridged product of one that trades, not an exchange and not a versioned pool of another protocol.'),
-            el('p', null, 'Protocols whose token already trades are set aside and shown at market value in the Live view. No protocol name is special-cased anywhere in the model: one function scores every row, and the workings of every row are on its detail page.'),
+            el('p', null, 'Protocols whose token already trades are set aside, shown at market value in the Live view. No name is special-cased: one function scores every row, and every row’s workings are on its detail page.'),
             el('p', null, 'An implied value is this model’s claim about a launch that has not happened, made from the snapshot alone. It is not a prediction that a token will exist.')),
           landscapeCard()),
         el('div', { class: 'side' },
@@ -659,15 +695,14 @@
   }
 
   function foot() {
-    return el('div', { class: 'foot', text: 'Data: ' + DATA.source + '. Implied values and the airdrop outlook are the ' + DATA.model_version + ' model’s estimates from that snapshot alone; a protocol shown here records no token in it, which is a statement about the record, not about the world. Farm plans are starting points, not advice.' });
+    return el('div', { class: 'foot', text: 'Data: ' + DATA.source + '. Implied values and the airdrop outlook are the ' + DATA.model_version + ' model’s estimates from that snapshot alone; a protocol shown here records no token in it — a statement about the record, not the world. Farm plans are starting points, not advice.' });
   }
 
   function render() {
     app.textContent = '';
     var wrap = el('div', { class: 'wrap' });
-    // the masthead: one coloured band carrying the wordmark, the stat cluster, the currency
-    // control row and the view tabs
-    var mast = el('header', { class: 'masthead' }, topbar(), mastctl());
+    // the masthead: ticker, wordmark band, currency row and view tabs
+    var mast = el('header', { class: 'masthead' }, ticker(), topbar(), mastctl());
     var selected = state.selected ? DATA.rows.filter(function (r) { return r.slug === state.selected; })[0] : null;
     if (selected) {
       wrap.appendChild(mast);

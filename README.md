@@ -105,16 +105,22 @@ not the standard one. Every step states what it costs and how long it takes.
 
 ## The dashboard's display layer
 
-The masthead carries the board's own vital signs — protocols ranked, the ranked set's total TVL,
-how many protocols sit in a likely-open snapshot window, and the median airdrop estimate — over a
-radar motif drawn in the gradient. Below them sits a display-currency selector: USD, EUR, GBP,
+The masthead opens with a ticker ribbon in the airdrops.io manner: the board's freshest items
+with coloured status pills — NEW for the newest listings, HOT for the top airdrop estimate and
+the biggest 7-day gainer, WINDOW OPEN for the largest protocols whose snapshot window still
+reads open — scrolling across the top, each item opening its protocol's detail. Under a large
+wordmark the masthead carries the board's own vital signs — protocols ranked, the ranked set's
+total TVL, how many protocols sit in a likely-open snapshot window, and the median airdrop
+estimate. Below them sits a display-currency selector: USD, EUR, GBP,
 JPY, CNY, IDR and KRW. The rates are constants baked into `data.js` at build time (`FX` in
 `lib/model.ts`, from exchangerate-api.com's public table of 2026-11-15), so the page stays fully
 offline, and conversion is display only: every figure is converted at render time by the one
 formatter, zero-decimal currencies show no cents, and ranking, sorting and all model maths stay
 in USD — the selector's own note on the page says exactly that. Percentages, multiples and the
 airdrop score never convert. The farm plans are part of `board.json` and keep the dollar amounts
-the model wrote into them.
+the model wrote into them. Above the board sits a row of quick-filter pills in the same manner —
+All, Hot (the top decile by airdrop estimate, and the pill says so), Window open, Free entry,
+Easy, Watchlist — which compose with the filter rail's search, category and chain filters.
 
 ## Running it
 
