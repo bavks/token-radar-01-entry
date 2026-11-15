@@ -1,8 +1,8 @@
 // Sonar dashboard. Reads window.RADAR (written beside this folder by main.ts from the same board
 // board.json carries) and renders three views: the ranked radar, the live-token set aside, and the
 // model itself. Every figure on the page comes from that one object; the page fetches nothing.
-// The presentation is deliberately plain: one board with four columns, a search box and two
-// filters, and a detail page per protocol carrying everything the board leaves out.
+// The presentation: a coloured masthead over a plain board — four columns, a search box and
+// two filters, and a detail page per protocol carrying everything the board leaves out.
 (function () {
   'use strict';
 
@@ -97,7 +97,7 @@
     });
   }
 
-  // ---- chrome: a wordmark and one line of provenance, then three quiet tabs
+  // ---- chrome: a coloured masthead band — wordmark, provenance chip and the three view tabs
   function topbar() {
     return el('div', { class: 'topbar' },
       el('div', { class: 'brand' },
@@ -323,12 +323,15 @@
   function render() {
     app.textContent = '';
     var wrap = el('div', { class: 'wrap' });
-    wrap.appendChild(topbar());
+    // the masthead: one coloured band carrying the wordmark, the provenance chip and the view tabs
+    var mast = el('header', { class: 'masthead' }, topbar());
     var selected = state.selected ? DATA.rows.filter(function (r) { return r.slug === state.selected; })[0] : null;
     if (selected) {
+      wrap.appendChild(mast);
       wrap.appendChild(detailView(selected));
     } else {
-      wrap.appendChild(tabs());
+      mast.appendChild(tabs());
+      wrap.appendChild(mast);
       wrap.appendChild(toolbar());
       if (state.view === 'live') wrap.appendChild(liveView());
       else if (state.view === 'model') wrap.appendChild(modelView());
